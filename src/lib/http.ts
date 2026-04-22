@@ -25,9 +25,8 @@ export const http: AxiosInstance = axios.create({
 http.interceptors.request.use((cfg) => {
   const t = tokenStore.get();
   if (t) {
-    cfg.headers = cfg.headers ?? {};
-    (cfg.headers as Record<string, string>).Authorization = `Bearer ${t}`;
-    (cfg.headers as Record<string, string>).token = t;
+    cfg.headers.set("Authorization", `Bearer ${t}`);
+    cfg.headers.set("token", t);
   }
   return cfg;
 });
