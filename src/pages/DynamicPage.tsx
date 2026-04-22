@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useMemo } from "react";
-import { useParams } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import AdminLayout from "@/components/admin/AdminLayout";
 import { loadDynamicPage } from "@/lib/dynamic-pages";
@@ -21,7 +21,11 @@ function findResource(
 }
 
 const DynamicPage = () => {
-  const { code = "" } = useParams<{ code: string }>();
+  const location = useLocation();
+  const code = location.pathname
+    .replace(/^\/+|\/+$/g, "")
+    .split("/")
+    .join(".");
   const { menus, permissions } = useAuth();
 
   const resource = useMemo(() => findResource(menus, code), [menus, code]);
