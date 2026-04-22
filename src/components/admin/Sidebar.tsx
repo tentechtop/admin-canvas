@@ -1,77 +1,102 @@
-import {
-  ChevronDown,
-  Database,
-  Gamepad2,
-  Github,
-  HelpCircle,
-  LayoutDashboard,
-  LayoutGrid,
-  LifeBuoy,
-  Lock,
-  Rocket,
-  Settings,
-  ShoppingBag,
-  SquareStack,
-} from "lucide-react";
+import { useMemo, useState } from "react";
+import { ChevronDown, HelpCircle } from "lucide-react";
+import { NavLink, useLocation } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import { codeToPath } from "@/lib/dynamic-pages";
+import { resolveIcon } from "@/lib/icon-map";
+import { cn } from "@/lib/utils";
+import type { ResourceInfo } from "@/types/auth";
 
-type NavItem = {
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  active?: boolean;
-  hasChildren?: boolean;
-};
+/** Sort by `sort` ascending, missing values last. */
+const bySort = (a: ResourceInfo, b: ResourceInfo) =>
+  (a.sort ?? 9999) - (b.sort ?? 9999);
 
-const mainNav: NavItem[] = [
-  { label: "Dashboard", icon: LayoutDashboard, active: true },
-  { label: "Layouts", icon: LayoutGrid, hasChildren: true },
-  { label: "CRUD", icon: Database, hasChildren: true },
-  { label: "Settings", icon: Settings, hasChildren: true },
-  { label: "Pages", icon: SquareStack, hasChildren: true },
-  { label: "Authentication", icon: Lock, hasChildren: true },
-  { label: "Playground", icon: Gamepad2, hasChildren: true },
-];
+/** Only render type=1 (menu) items; type=2 (function/action) is permission-only. */
+const menusOnly = (list: ResourceInfo[]) =>
+  list.filter((r) => r.type !== 2).sort(bySort);
 
-const secondaryNav: NavItem[] = [
-  { label: "Quickstart", icon: Rocket },
-  { label: "GitHub Repository", icon: Github },
-  { label: "Flowbite Svelte", icon: ShoppingBag },
-  { label: "Components", icon: LayoutGrid },
-  { label: "Support", icon: LifeBuoy },
-];
-
-const NavRow = ({ item }: { item: NavItem }) => {
-  const Icon = item.icon;
+const MenuLink = ({ item }: { item: ResourceInfo }) => {
+  const Icon = resolveIcon(item.icon);
   return (
-    <button
-      className={`group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-        item.active
-          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-      }`}
+    <NavLink
+      to={codeToPath(item.resourceCode ?? "")}
+      className={({ isActive }) =>
+        cn(
+          "group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+          isActive
+            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+            : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+        )
+      }
     >
       <Icon className="h-5 w-5 shrink-0" />
-      <span className="flex-1 text-left">{item.label}</span>
-      {item.hasChildren && <ChevronDown className="h-4 w-4 opacity-60" />}
-    </button>
+      <span className="flex-1 text-left">{item.resourceName}</span>
+    </NavLink>
+  );
+};
+
+const MenuGroup = ({ item }: { item: ResourceInfo }) => {
+  const Icon = resolveIcon(item.icon);
+  const location = useLocation();
+  const children = menusOnly(item.kidResource ?? []);
+  const childPaths = children.map((c) => codeToPath(c.resourceCode ?? ""));
+  const containsActive = childPaths.some((p) => location.pathname.startsWith(p));
+  const [open, setOpen] = useState(containsActive);
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+          "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+        )}
+      >
+        <Icon className="h-5 w-5 shrink-0" />
+        <span className="flex-1 text-left">{item.resourceName}</span>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 opacity-60 transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+      {open && (
+        <div className="ml-4 mt-1 space-y-1 border-l border-sidebar-border pl-3">
+          {children.map((c) =>
+            (c.kidResource ?? []).some((k) => k.type !== 2) ? (
+              <MenuGroup key={c.resourceCode} item={c} />
+            ) : (
+              <MenuLink key={c.resourceCode} item={c} />
+            ),
+          )}
+        </div>
+      )}
+    </div>
   );
 };
 
 const Sidebar = () => {
+  const { menus } = useAuth();
+  const top = useMemo(() => menusOnly(menus), [menus]);
+
   return (
     <aside className="hidden w-60 shrink-0 border-r border-sidebar-border bg-sidebar lg:block">
       <nav className="flex h-[calc(100vh-4rem)] flex-col gap-1 overflow-y-auto p-3">
         <div className="space-y-1">
-          {mainNav.map((item) => (
-            <NavRow key={item.label} item={item} />
-          ))}
-        </div>
-
-        <div className="my-3 border-t border-sidebar-border" />
-
-        <div className="space-y-1">
-          {secondaryNav.map((item) => (
-            <NavRow key={item.label} item={item} />
-          ))}
+          {top.length === 0 && (
+            <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+              暂无可用菜单
+            </div>
+          )}
+          {top.map((item) =>
+            (item.kidResource ?? []).some((k) => k.type !== 2) ? (
+              <MenuGroup key={item.resourceCode} item={item} />
+            ) : (
+              <MenuLink key={item.resourceCode} item={item} />
+            ),
+          )}
         </div>
 
         <div className="mt-auto flex items-center justify-between px-3 py-2 text-xs text-muted-foreground">
