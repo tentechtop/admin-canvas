@@ -2,6 +2,10 @@ import { useMemo, useState } from "react";
 import { ChevronDown, HelpCircle } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import {
+  hasMarketingMenu,
+  marketingStaticMenu,
+} from "@/features/marketing-center/config";
 import { codeToPath } from "@/lib/dynamic-pages";
 import { resolveIcon } from "@/lib/icon-map";
 import { cn } from "@/lib/utils";
@@ -17,9 +21,10 @@ const menusOnly = (list: ResourceInfo[]) =>
 
 const MenuLink = ({ item }: { item: ResourceInfo }) => {
   const Icon = resolveIcon(item.icon);
+  const to = item.path || codeToPath(item.resourceCode ?? "");
   return (
     <NavLink
-      to={codeToPath(item.resourceCode ?? "")}
+      to={to}
       className={({ isActive }) =>
         cn(
           "group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
@@ -39,7 +44,7 @@ const MenuGroup = ({ item }: { item: ResourceInfo }) => {
   const Icon = resolveIcon(item.icon);
   const location = useLocation();
   const children = menusOnly(item.kidResource ?? []);
-  const childPaths = children.map((c) => codeToPath(c.resourceCode ?? ""));
+  const childPaths = children.map((c) => c.path || codeToPath(c.resourceCode ?? ""));
   const containsActive = childPaths.some((p) => location.pathname.startsWith(p));
   const [open, setOpen] = useState(containsActive);
 
@@ -79,7 +84,13 @@ const MenuGroup = ({ item }: { item: ResourceInfo }) => {
 
 const Sidebar = () => {
   const { menus } = useAuth();
-  const top = useMemo(() => menusOnly(menus), [menus]);
+  const top = useMemo(() => {
+    const normalized = menusOnly(menus);
+    if (hasMarketingMenu(normalized)) {
+      return normalized;
+    }
+    return menusOnly([...normalized, marketingStaticMenu]);
+  }, [menus]);
 
   return (
     <aside className="hidden w-60 shrink-0 border-r border-sidebar-border bg-sidebar lg:block">

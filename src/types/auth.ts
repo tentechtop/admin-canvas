@@ -53,8 +53,8 @@ export interface AdminUserDetailReply {
   code?: number;
 }
 
-/** Type 1=menu, 2=function */
-export type ResourceType = 1 | 2;
+/** Type 1=菜单, 2=功能/按钮 */
+export type ResourceType = number;
 
 export interface ResourceInfo {
   resourceCode?: string;

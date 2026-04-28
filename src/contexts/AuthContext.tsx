@@ -19,8 +19,10 @@ interface AuthContextValue {
   ready: boolean;
   user: AdminUserDetail | null;
   menus: ResourceInfo[];
-  /** Flat list of resourceCodes the user can access (incl. functions). */
+  /** Flat set of resourceCodes + action codes (e.g. "system.user:add") the user can access. */
   permissions: Set<string>;
+  /** Check if current user has a specific button/action permission. */
+  hasAction: (resourceCode: string, action: string) => boolean;
   login: (req: AdminUserLoginReq) => Promise<void>;
   logout: () => Promise<void>;
   refreshMenus: () => Promise<void>;
@@ -31,6 +33,12 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 function flattenCodes(list: ResourceInfo[] = [], acc = new Set<string>()) {
   for (const r of list) {
     if (r.resourceCode) acc.add(r.resourceCode);
+    // Collect button/action permissions as "resourceCode:action"
+    if (r.resourceCode && r.actions?.length) {
+      for (const a of r.actions) {
+        acc.add(`${r.resourceCode}:${a}`);
+      }
+    }
     if (r.kidResource?.length) flattenCodes(r.kidResource, acc);
   }
   return acc;
@@ -91,17 +99,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMenus([]);
   }, []);
 
+  const permissions = useMemo(() => flattenCodes(menus), [menus]);
+
+  const hasAction = useCallback(
+    (resourceCode: string, action: string) =>
+      permissions.has(`${resourceCode}:${action}`),
+    [permissions],
+  );
+
   const value = useMemo<AuthContextValue>(
     () => ({
       ready,
       user,
       menus,
-      permissions: flattenCodes(menus),
+      permissions,
+      hasAction,
       login,
       logout,
       refreshMenus,
     }),
-    [ready, user, menus, login, logout, refreshMenus],
+    [ready, user, menus, permissions, hasAction, login, logout, refreshMenus],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

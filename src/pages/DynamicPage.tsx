@@ -2,21 +2,46 @@ import { Suspense, useEffect, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import AdminLayout from "@/components/admin/AdminLayout";
-import { loadDynamicPage } from "@/lib/dynamic-pages";
+import { codeToPath, loadDynamicPage } from "@/lib/dynamic-pages";
 import { useAuth } from "@/contexts/AuthContext";
 import type { ResourceInfo } from "@/types/auth";
+
+function normalizePath(path?: string) {
+  if (!path) {
+    return "/";
+  }
+
+  const normalized = path.replace(/^\/+|\/+$/g, "");
+  return normalized ? `/${normalized}` : "/";
+}
 
 function findResource(
   list: ResourceInfo[],
   code: string,
+  pathname: string,
 ): ResourceInfo | undefined {
-  for (const r of list) {
-    if (r.resourceCode === code) return r;
-    if (r.kidResource?.length) {
-      const hit = findResource(r.kidResource, code);
-      if (hit) return hit;
+  const normalizedPathname = normalizePath(pathname);
+
+  for (const resource of list) {
+    const resourcePath = normalizePath(
+      resource.path || codeToPath(resource.resourceCode ?? ""),
+    );
+
+    if (
+      resource.resourceCode === code ||
+      resourcePath === normalizedPathname
+    ) {
+      return resource;
+    }
+
+    if (resource.kidResource?.length) {
+      const hit = findResource(resource.kidResource, code, pathname);
+      if (hit) {
+        return hit;
+      }
     }
   }
+
   return undefined;
 }
 
@@ -28,23 +53,46 @@ const DynamicPage = () => {
     .join(".");
   const { menus, permissions } = useAuth();
 
-  const resource = useMemo(() => findResource(menus, code), [menus, code]);
-  const Comp = useMemo(() => loadDynamicPage(code), [code]);
+  const resource = useMemo(
+    () => findResource(menus, code, location.pathname),
+    [menus, code, location.pathname],
+  );
+
+  const permissionKey = resource?.resourceCode || code;
+  const canAccess =
+    Boolean(resource) ||
+    permissions.has(permissionKey) ||
+    permissions.has(code);
+
+  const Comp = useMemo(() => {
+    const candidates = [resource?.resourceCode, code].filter(
+      (value): value is string => Boolean(value),
+    );
+
+    for (const candidate of candidates) {
+      const page = loadDynamicPage(candidate);
+      if (page) {
+        return page;
+      }
+    }
+
+    return null;
+  }, [resource?.resourceCode, code]);
 
   useEffect(() => {
     document.title = resource?.resourceName
-      ? `${resource.resourceName} · Mitrade Admin`
+      ? `${resource.resourceName} | Mitrade Admin`
       : "Mitrade Admin";
   }, [resource]);
 
-  // Permission check: code must be present in user's resource tree.
-  if (!permissions.has(code)) {
+  if (!canAccess) {
     return (
       <AdminLayout>
         <div className="rounded-lg border border-border bg-card p-8 text-center">
-          <h1 className="text-lg font-semibold">无权限访问</h1>
+          <h1 className="text-lg font-semibold">No Access</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            您的角色未被授予访问 <code className="font-mono">{code}</code> 的权限。
+            Your current role is not allowed to access{" "}
+            <code className="font-mono">{permissionKey}</code>.
           </p>
         </div>
       </AdminLayout>
@@ -57,7 +105,7 @@ const DynamicPage = () => {
         fallback={
           <div className="flex h-64 items-center justify-center text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            加载页面…
+            Loading page...
           </div>
         }
       >
@@ -69,20 +117,21 @@ const DynamicPage = () => {
               {resource?.resourceName ?? code}
             </h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              此菜单尚未实现页面组件。请在
+              This menu is available, but the page component is not implemented
+              yet. Add a component at
               <code className="mx-1 font-mono">
-                src/pages/dynamic/{code}.tsx
+                src/pages/dynamic/{resource?.resourceCode ?? code}.tsx
               </code>
-              中添加组件即可自动生效。
+              and it will be picked up automatically.
             </p>
             {resource?.actions?.length ? (
               <div className="mt-4 flex flex-wrap gap-2">
-                {resource.actions.map((a) => (
+                {resource.actions.map((action) => (
                   <span
-                    key={a}
+                    key={action}
                     className="rounded-md border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
                   >
-                    {a}
+                    {action}
                   </span>
                 ))}
               </div>

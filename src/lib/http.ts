@@ -11,11 +11,10 @@ export const tokenStore = {
 };
 
 const baseURL =
-  import.meta.env.VITE_API_BASE_URL ??
-  "https://demo-admin.mitrade.com/admin-auth-service";
+  import.meta.env.VITE_API_BASE_URL ?? "";
 
 export const PLATFORM_CODE: string =
-  (import.meta.env.VITE_PLATFORM_CODE as string) ?? "admin";
+  (import.meta.env.VITE_PLATFORM_CODE as string) ?? "kol";
 
 export const http: AxiosInstance = axios.create({
   baseURL,

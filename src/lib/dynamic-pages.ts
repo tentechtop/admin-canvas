@@ -13,9 +13,49 @@ const modules = import.meta.glob<{ default: ComponentType<unknown> }>(
 
 const componentCache = new Map<string, ReturnType<typeof lazy>>();
 
+const pageAliases: Array<{
+  file: string;
+  test: (code: string) => boolean;
+}> = [
+  {
+    file: "../pages/dynamic/kol-audit.tsx",
+    test: (code) =>
+      /(kol[._-]?(audit|review|console)|affiliate[._-]?(audit|review)|kyc|traffic[._-]?review)/i.test(
+        code,
+      ),
+  },
+  {
+    file: "../pages/dynamic/kol-manage.tsx",
+    test: (code) =>
+      /(kol[._-]?(manage|admin)?[._-]?(list|stat|stats|statistics|performance))/i.test(
+        code,
+      ) &&
+      !/(audit|review|console)/i.test(code),
+  },
+  {
+    file: "../pages/dynamic/role-data-permission.tsx",
+    test: (code) =>
+      /(role[._-]?data[._-]?permission|data[._-]?permission[._-]?role)/i.test(
+        code,
+      ),
+  },
+  {
+    file: "../pages/dynamic/role-permission.tsx",
+    test: (code) =>
+      /(role[._-]?permission|permission[._-]?scenario)/i.test(code) &&
+      !/role[._-]?data[._-]?permission/i.test(code),
+  },
+];
+
 function findLoader(code: string) {
   const wanted = `../pages/dynamic/${code}.tsx`;
-  return modules[wanted];
+  if (modules[wanted]) {
+    return modules[wanted];
+  }
+
+  const normalized = code.trim().toLowerCase();
+  const alias = pageAliases.find((item) => item.test(normalized));
+  return alias ? modules[alias.file] : undefined;
 }
 
 export function hasDynamicPage(code: string): boolean {
