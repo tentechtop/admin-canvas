@@ -1,6 +1,8 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
+import { affinexApi } from "@/api/affinex";
 import { marketingCenterApi } from "@/api/marketing-center";
 import { taxonomyTabs } from "@/features/marketing-center/config";
+import type { PromotionLinkSummaryQuery } from "@/types/affinex";
 import type {
   MarketingActivitiesQuery,
   MarketingAuditQuery,
@@ -29,6 +31,8 @@ export const marketingQueryKeys = {
   fileObjects: (query: MarketingFileObjectsQuery) =>
     ["marketing-center", "file-objects", query] as const,
   workbenchSummary: () => ["marketing-center", "workbench", "summary"] as const,
+  promotionLinkSummary: (query: PromotionLinkSummaryQuery) =>
+    ["marketing-center", "promotion-link-summary", query] as const,
 };
 
 export function useMarketingTaxonomies(
@@ -179,4 +183,12 @@ export function useMarketingWorkbenchStats() {
     publishedActivities: activities?.published ?? 0,
     rejectedActivities: activities?.rejected ?? 0,
   };
+}
+
+export function usePromotionLinkSummary(query: PromotionLinkSummaryQuery) {
+  return useQuery({
+    queryKey: marketingQueryKeys.promotionLinkSummary(query),
+    queryFn: async () => (await affinexApi.getPromotionLinkSummary(query)).value,
+    placeholderData: (previous) => previous,
+  });
 }

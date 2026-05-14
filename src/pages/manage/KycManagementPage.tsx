@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -40,7 +41,9 @@ import type {
   AuthUserInfo,
   KolKycCompanyPayload,
   KolKycIndividualPayload,
-  KolKycUpdatePayload,
+  KolKycUpdateAndStatusAuditPayload,
+  KycAccountType,
+  KycReviewStatus,
 } from "@/types/affiliate-console";
 
 const KYC_STATUS_ALL = "__ALL__";
@@ -76,11 +79,13 @@ const defaultQuery: AffiliateAuditQuery = {
   ...defaultFilters,
 };
 
-type EditableAccountType = "INDIVIDUAL" | "COMPANY";
-
 interface EditorState {
-  accountType: EditableAccountType;
+  accountType: KycAccountType;
   affiliateId: string;
+  countryCode: string;
+  currentKycStatus: KycReviewStatus | "";
+  reviewStatus: KycReviewStatus | "";
+  reviewRemark: string;
   individual: KolKycIndividualPayload;
   company: KolKycCompanyPayload;
 }
@@ -129,8 +134,15 @@ function normalizeDateInput(value: unknown) {
   return normalized;
 }
 
-function normalizeAccountType(value: string): EditableAccountType {
+function normalizeAccountType(value: string): KycAccountType {
   return value.toUpperCase() === "COMPANY" ? "COMPANY" : "INDIVIDUAL";
+}
+
+function normalizeKycReviewStatus(value: string): KycReviewStatus | "" {
+  const normalized = value.trim().toUpperCase();
+  return kycStatusOptions.some((option) => option.value !== KYC_STATUS_ALL && option.value === normalized)
+    ? (normalized as KycReviewStatus)
+    : "";
 }
 
 function valueText(value: unknown) {
@@ -149,7 +161,7 @@ function firstFilledText(...values: unknown[]) {
 }
 
 function isEditableRow(row: AffiliateAuditRow) {
-  return String(row.idKYCStatus ?? "").trim().toUpperCase() === "NOT_APPLIED";
+  return Boolean(String(row.affiliateId ?? "").trim());
 }
 
 function totalPagesFromValue(totalPages: unknown, total: unknown, pageSize: unknown) {
@@ -204,6 +216,13 @@ function buildEditorState(detailValue: unknown, row: AffiliateAuditRow): EditorS
   return {
     accountType,
     affiliateId,
+    countryCode:
+      pickFirstText(detail, ["countryCode", "country_code"]) || String(row.countryCode ?? "").trim(),
+    currentKycStatus: normalizeKycReviewStatus(
+      pickFirstText(detail, ["idKYCStatus", "idKycStatus"]) || String(row.idKYCStatus ?? ""),
+    ),
+    reviewStatus: "",
+    reviewRemark: firstFilledText(detail.idApproverNotes, detail.remark, row.kycRemark, row.remark, row.idApproverNotes),
     individual: {
       affiliateId,
       firstName: pickFirstTextFromRecords([individualInfo, detail], ["firstName", "idFirstName"]),
@@ -276,6 +295,49 @@ function buildEditorState(detailValue: unknown, row: AffiliateAuditRow): EditorS
   };
 }
 
+function buildRowFromDetail(
+  detailValue: unknown,
+  row: AffiliateAuditRow,
+  reviewStatus?: KycReviewStatus | "",
+): AffiliateAuditRow {
+  const detail = extractAuditDetailRoot(detailValue);
+  const nextStatus =
+    normalizeKycReviewStatus(pickFirstText(detail, ["idKYCStatus", "idKycStatus"])) ||
+    reviewStatus ||
+    normalizeKycReviewStatus(String(row.idKYCStatus ?? ""));
+  const nextRemark = firstFilledText(
+    detail.kycRemark,
+    detail.remark,
+    detail.idApproverNotes,
+    row.kycRemark,
+    row.remark,
+    row.idApproverNotes,
+  );
+  const nextReviewTime = firstFilledText(
+    detail.kycReviewTime,
+    detail.reviewTime,
+    detail.idTimestamp,
+    row.kycReviewTime,
+    row.reviewTime,
+  );
+
+  return {
+    ...row,
+    affiliateId: pickFirstText(detail, ["affiliateId", "affiliate_id"]) || row.affiliateId,
+    countryCode: pickFirstText(detail, ["countryCode", "country_code"]) || row.countryCode,
+    accountType: pickFirstText(detail, ["accountType", "idAccountType"]) || row.accountType,
+    idKYCStatus: nextStatus || row.idKYCStatus,
+    kycReviewer:
+      pickFirstText(detail, ["kycReviewer", "reviewerUsernameSnapshot", "idApprovedBy"]) ||
+      row.kycReviewer,
+    kycReviewTime: nextReviewTime || row.kycReviewTime,
+    reviewTime: nextReviewTime || row.reviewTime,
+    idApproverNotes: nextRemark || row.idApproverNotes,
+    remark: nextRemark || row.remark,
+    kycRemark: nextRemark || row.kycRemark,
+  };
+}
+
 function applyDocumentFieldPayload<T extends Record<string, unknown>>(
   payload: T,
   fileField: keyof T,
@@ -302,30 +364,47 @@ function applyDocumentFieldPayload<T extends Record<string, unknown>>(
   return nextPayload;
 }
 
-function buildUpdatePayload(state: EditorState): KolKycUpdatePayload {
-  return state.accountType === "COMPANY"
-    ? {
-        affiliateId: state.affiliateId,
-        accountType: state.accountType,
-        company: applyDocumentFieldPayload(
-          applyDocumentFieldPayload(
-            applyDocumentFieldPayload({ ...state.company, affiliateId: state.affiliateId }, "img", "imgContent"),
+function buildUpdatePayload(state: EditorState): KolKycUpdateAndStatusAuditPayload {
+  const payload: KolKycUpdateAndStatusAuditPayload =
+    state.accountType === "COMPANY"
+      ? {
+          affiliateId: state.affiliateId,
+          accountType: state.accountType,
+          company: applyDocumentFieldPayload(
+            applyDocumentFieldPayload(
+              applyDocumentFieldPayload({ ...state.company, affiliateId: state.affiliateId }, "img", "imgContent"),
+              "proofOfAddressImg",
+              "proofOfAddressImgContent",
+            ),
+            "companyRegCertImg",
+            "companyRegCertImgContent",
+          ),
+        }
+      : {
+          affiliateId: state.affiliateId,
+          accountType: state.accountType,
+          individual: applyDocumentFieldPayload(
+            applyDocumentFieldPayload({ ...state.individual, affiliateId: state.affiliateId }, "img", "imgContent"),
             "proofOfAddressImg",
             "proofOfAddressImgContent",
           ),
-          "companyRegCertImg",
-          "companyRegCertImgContent",
-        ),
-      }
-    : {
-        affiliateId: state.affiliateId,
-        accountType: state.accountType,
-        individual: applyDocumentFieldPayload(
-          applyDocumentFieldPayload({ ...state.individual, affiliateId: state.affiliateId }, "img", "imgContent"),
-          "proofOfAddressImg",
-          "proofOfAddressImgContent",
-        ),
-      };
+        };
+
+  const countryCode = state.countryCode.trim();
+  const reviewRemark = state.reviewRemark.trim();
+
+  if (countryCode) {
+    payload.countryCode = countryCode;
+  }
+
+  if (state.reviewStatus) {
+    payload.idKYCStatus = state.reviewStatus;
+    if (reviewRemark) {
+      payload.remark = reviewRemark;
+    }
+  }
+
+  return payload;
 }
 
 function KycImageField({
@@ -513,15 +592,53 @@ export default function KycManagementPage() {
     }
     setEditorSaving(true);
     try {
-      await affiliateConsoleApi.updateKolKyc(buildUpdatePayload({ ...editorState, affiliateId }));
-      toast.success("KYC information updated.");
-      closeEditor();
-      await listQuery.refetch();
+      const nextEditorState = { ...editorState, affiliateId };
+      if (nextEditorState.reviewStatus && !["INDIVIDUAL", "COMPANY"].includes(nextEditorState.accountType)) {
+        setEditorError("accountType is required for kyc review.");
+        return;
+      }
+
+      const result = await affiliateConsoleApi.updateKolKycAndKycStatusAudit(
+        buildUpdatePayload(nextEditorState),
+      );
+      const nextRow = buildRowFromDetail(result.value, editingRow, nextEditorState.reviewStatus);
+      setEditingRow(nextRow);
+      setEditorState(buildEditorState(result.value, nextRow));
+      setEditorError("");
+      toast.success(
+        nextEditorState.reviewStatus
+          ? `KYC information and status updated to ${nextEditorState.reviewStatus}.`
+          : "KYC information updated.",
+      );
+      void listQuery.refetch();
     } catch (error) {
       setEditorError(error instanceof Error ? error.message : "Failed to update KYC information.");
     } finally {
       setEditorSaving(false);
     }
+  }
+
+  function updateEditorAccountType(value: string) {
+    setEditorState((prev) => (prev ? { ...prev, accountType: normalizeAccountType(value) } : prev));
+  }
+
+  function updateEditorCountryCode(value: string) {
+    setEditorState((prev) => (prev ? { ...prev, countryCode: value.toUpperCase() } : prev));
+  }
+
+  function updateEditorReviewStatus(value: string) {
+    setEditorState((prev) =>
+      prev
+        ? {
+            ...prev,
+            reviewStatus: value === KYC_STATUS_ALL ? "" : normalizeKycReviewStatus(value),
+          }
+        : prev,
+    );
+  }
+
+  function updateEditorReviewRemark(value: string) {
+    setEditorState((prev) => (prev ? { ...prev, reviewRemark: value } : prev));
   }
 
   function updateIndividualField(field: keyof KolKycIndividualPayload, value: string) {
@@ -555,7 +672,7 @@ export default function KycManagementPage() {
       <div className="space-y-6">
       <PageIntro
         title="KYC Management"
-        description="This fixed page hosts the KYC management flow. The table uses `/admin/kolUserStatistics`, view actions reuse the affiliate profile page, and edit actions submit through `/admin/kolKycUpdate`."
+        description="This fixed page hosts the KYC management flow. The table uses `/admin/kolUserStatistics`, and edit actions submit through `/admin/kolKycUpdateAndKycStatusAudit` so profile updates can include direct KYC status changes."
         actions={
           <Button type="button" variant="secondary" onClick={() => void listQuery.refetch()} disabled={listQuery.isFetching}>
             {listQuery.isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
@@ -613,7 +730,7 @@ export default function KycManagementPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">KYC List</CardTitle>
-          <CardDescription>The table follows the KYC management columns and only allows edit actions when the current KYC status is `NOT_APPLIED`.</CardDescription>
+          <CardDescription>The table follows the KYC management columns and supports opening the KYC editor from every row so admins can update profile fields together with KYC review status.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {rows.length === 0 && listQuery.isLoading ? (
@@ -638,7 +755,7 @@ export default function KycManagementPage() {
                           <TableCell>{valueText(row.countryCode)}</TableCell>
                           <TableCell>{valueText(ownerText)}</TableCell>
                           <TableCell><StatusBadge status={String(row.idKYCStatus ?? "")} /></TableCell>
-                          <TableCell>{valueText(firstFilledText(row.applicationTime, row.createTime))}</TableCell>
+                          <TableCell>{valueText(firstFilledText(row.kycApplicationTime, row.applicationTime, row.createTime))}</TableCell>
                           <TableCell>
                             {editable ? (
                               <Button type="button" size="sm" onClick={() => void openEditor(row)}><Pencil className="mr-2 h-4 w-4" />Edit</Button>
@@ -646,9 +763,9 @@ export default function KycManagementPage() {
                               <Button type="button" variant="outline" size="sm" onClick={() => navigate(`/manage/affiliate-profile/${row.affiliateId}`)}>View</Button>
                             )}
                           </TableCell>
-                          <TableCell>{valueText(row.reviewer)}</TableCell>
-                          <TableCell>{valueText(row.reviewTime)}</TableCell>
-                          <TableCell className="max-w-[320px] break-all">{valueText(firstFilledText(row.remark, row.idApproverNotes))}</TableCell>
+                          <TableCell>{valueText(row.kycReviewer)}</TableCell>
+                          <TableCell>{valueText(firstFilledText(row.kycReviewTime, row.reviewTime))}</TableCell>
+                          <TableCell className="max-w-[320px] break-all">{valueText(firstFilledText(row.kycRemark, row.remark, row.idApproverNotes))}</TableCell>
                         </TableRow>
                       );
                     })}
@@ -676,7 +793,7 @@ export default function KycManagementPage() {
         <DialogContent className="flex max-h-[92vh] max-w-5xl flex-col overflow-hidden p-0">
           <DialogHeader className="shrink-0 border-b px-6 py-4">
             <DialogTitle>Edit KYC Detail</DialogTitle>
-            <DialogDescription>This editor only updates KYC profile fields for `NOT_APPLIED` rows.</DialogDescription>
+            <DialogDescription>This editor updates KYC profile fields and can submit a KYC status audit in the same request.</DialogDescription>
           </DialogHeader>
           <div ref={editorBodyRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             {editorLoading ? (
@@ -685,8 +802,34 @@ export default function KycManagementPage() {
               <EmptyState title="Failed to load KYC detail" description={<span className="space-y-3"><span className="block">{editorError}</span><Button type="button" variant="outline" onClick={() => (editingRow ? void openEditor(editingRow) : undefined)}>Retry</Button></span>} />
             ) : editorState ? (
               <div className="space-y-6">
-                <div className="grid gap-4 md:grid-cols-4"><StatCard label="affiliateId" value={editorState.affiliateId} /><StatCard label="accountType" value={editorState.accountType} /><StatCard label="trafficStatus" value={String(editingRow?.trafficResourceStatus ?? "-")} /><StatCard label="kycStatus" value={String(editingRow?.idKYCStatus ?? "-")} /></div>
+                <div className="grid gap-4 md:grid-cols-4"><StatCard label="affiliateId" value={editorState.affiliateId} /><StatCard label="currentKycStatus" value={editorState.currentKycStatus || "-"} /><StatCard label="countryCode" value={editorState.countryCode || "-"} /><StatCard label="trafficStatus" value={String(editingRow?.trafficResourceStatus ?? "-")} /></div>
                 {editorError ? <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">{editorError}</div> : null}
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <Field label="accountType" hint="Required when submitting a KYC status update.">
+                    <Select value={editorState.accountType} onValueChange={updateEditorAccountType}>
+                      <SelectTrigger><SelectValue placeholder="Select account type" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="INDIVIDUAL">INDIVIDUAL</SelectItem>
+                        <SelectItem value="COMPANY">COMPANY</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field label="countryCode" hint="Submit this at the root level when country is updated.">
+                    <Input value={editorState.countryCode} onChange={(event) => updateEditorCountryCode(event.target.value)} placeholder="e.g. VN" maxLength={8} />
+                  </Field>
+                  <Field label="KYC Status Update" hint="Leave as Keep current status when you only want to edit KYC fields.">
+                    <Select value={editorState.reviewStatus || KYC_STATUS_ALL} onValueChange={updateEditorReviewStatus}>
+                      <SelectTrigger><SelectValue placeholder="Keep current status" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={KYC_STATUS_ALL}>Keep current status</SelectItem>
+                        {kycStatusOptions.filter((option) => option.value !== KYC_STATUS_ALL).map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field label="Audit Remark" hint="Optional. Sent together with the KYC status update when a new status is selected.">
+                    <Textarea value={editorState.reviewRemark} onChange={(event) => updateEditorReviewRemark(event.target.value)} placeholder="Enter audit remark" className="min-h-[92px]" maxLength={500} />
+                  </Field>
+                </div>
                 {editorState.accountType === "COMPANY" ? (
                   <div className="space-y-6">
                     <div className="grid gap-4 md:grid-cols-2">

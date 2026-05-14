@@ -9,6 +9,10 @@ export type KycReviewStatus =
   | "NOT_APPLIED"
   | "ACCOUNT_CLOSED";
 
+export type KycAccountType = "INDIVIDUAL" | "COMPANY";
+
+export type AffiliateCompleteInfo = Record<string, unknown>;
+
 export interface AuthUserInfo {
   adminId?: number;
   uid?: string;
@@ -49,7 +53,7 @@ export interface RoleDataPermissionListValue {
   list?: RoleDataPermissionConfig[];
 }
 
-export interface AffiliateAuditRow {
+export interface AffiliateReviewBaseRow {
   affiliateId?: string;
   affiliateCode?: string;
   referralCode?: string;
@@ -58,40 +62,66 @@ export interface AffiliateAuditRow {
   tier?: string;
   countryCode?: string;
   compensationModel?: string;
-  rs?: boolean;
+  rs?: boolean | string | number;
   owner?: string;
   inviteCode?: string;
   shortLink?: string;
-  websites?: string[];
-  trafficSource?: string[];
+  websites?: string[] | string;
   commissionRate?: number | string;
   accountType?: string;
   createTime?: string;
-  auditTime?: string;
-  trafficAuditTime?: string;
   trafficResourceStatus?: string;
-  trafficResourceApprovedBy?: string;
   reviewerUsernameSnapshot?: string;
   idKYCStatus?: string;
-  idApproverNotes?: string;
-  applicationTime?: string;
-  reviewer?: string;
-  reviewTime?: string;
-  remark?: string;
-  bdOwnerAdminId?: string;
   bdOwnerUsernameSnapshot?: string;
-  bdChangeLog?: string[];
+  bdChangeLog?: string[] | string;
   totalUser?: number | string;
+}
+
+export interface AffiliateTrafficReviewRow extends AffiliateReviewBaseRow {
+  trafficReviewer?: string;
+  trafficReviewTime?: string;
+  trafficRemark?: string;
+  trafficReviewMail?: string;
+  trafficApplicationTime?: string;
+}
+
+export interface AffiliateKycReviewRow extends AffiliateReviewBaseRow {
+  kycReviewer?: string;
+  kycReviewTime?: string;
+  kycRemark?: string;
+  kycReviewMail?: string;
+  kycApplicationTime?: string;
+}
+
+export interface AffiliateKolInfoRow extends AffiliateReviewBaseRow {
+  trafficReviewer?: string;
+  trafficReviewTime?: string;
+  trafficRemark?: string;
+  trafficReviewMail?: string;
+  trafficApplicationTime?: string;
+  kycReviewer?: string;
+  kycReviewTime?: string;
+  kycRemark?: string;
+  kycReviewMail?: string;
+  kycApplicationTime?: string;
+  idApproverNotes?: string;
   [key: string]: unknown;
 }
 
-export interface AffiliateAuditListValue {
+export type AffiliateAuditRow = AffiliateKolInfoRow;
+
+export interface AffiliateAuditListValue<TRow extends Record<string, unknown> = AffiliateAuditRow> {
   total?: number;
   totalPages?: number;
   pageSize?: number;
   currentPage?: number;
-  resultList?: AffiliateAuditRow[];
+  resultList?: TRow[];
 }
+
+export type AffiliateTrafficReviewListValue = AffiliateAuditListValue<AffiliateTrafficReviewRow>;
+export type AffiliateKycReviewListValue = AffiliateAuditListValue<AffiliateKycReviewRow>;
+export type AffiliateKolInfoListValue = AffiliateAuditListValue<AffiliateKolInfoRow>;
 
 export interface ReviewAggregateCountValue {
   pending?: number;
@@ -164,6 +194,14 @@ export interface KolKycUpdatePayload {
   accountType?: string;
   individual?: KolKycIndividualPayload;
   company?: KolKycCompanyPayload;
+}
+
+export interface KolKycUpdateAndStatusAuditPayload extends KolKycUpdatePayload {
+  accountType?: KycAccountType;
+  idKYCStatus?: KycReviewStatus;
+  idApproverNotes?: string;
+  remark?: string;
+  countryCode?: string;
 }
 
 export type ModificationReviewAction = "APPROVE" | "REJECT";
@@ -503,6 +541,18 @@ export interface SettlementAttachment {
   path?: string;
 }
 
+export interface SettlementPaymentFile {
+  id: string;
+  name: string;
+  size: number;
+  path: string;
+  type: string;
+  url: string;
+  role: string;
+  mail: string;
+  username: string;
+}
+
 export interface SettlementStatementRow {
   id?: number | string;
   affiliateId?: string;
@@ -517,9 +567,9 @@ export interface SettlementStatementRow {
   datePeriod?: string;
   owner?: string;
   paymentMethods?: string;
-  awardAmount?: number;
-  adjustmentsAmount?: number;
-  originAmount?: number;
+  awardAmount?: number | string;
+  adjustmentsAmount?: number | string;
+  originAmount?: number | string;
   receiverAccount?: string;
   note?: string;
   receipts?: SettlementAttachment[];
@@ -571,8 +621,8 @@ export interface SettlementPaymentCommissionValue {
 
 export interface SettlementPaymentSummaryHistoryRow {
   datePeriod?: string;
-  originAmount?: number;
-  awardAmount?: number;
+  originAmount?: number | string;
+  awardAmount?: number | string;
   paidAmount?: string;
 }
 
@@ -580,30 +630,46 @@ export interface SettlementPaymentSummaryRow {
   id?: number;
   affiliateId?: string;
   affiliateCode?: string;
+  referralCode?: string;
   payableAmount?: string;
-  adjustmentsAmount?: number;
+  adjustmentsAmount?: number | string;
   status?: string;
   payoutDate?: string;
   note?: string;
   applicationDate?: string;
   paymentMethods?: string;
-  paymentFile?: string[];
+  paymentFile?: SettlementPaymentFile[];
   paymentHistoryList?: SettlementPaymentSummaryHistoryRow[];
   medium?: string;
   name?: string;
   email?: string;
   owner?: string;
-  originAmount?: number;
+  country?: string;
+  originAmount?: number | string;
+}
+
+export interface SettlementPaymentSummarySummary {
+  totalPayableAmount?: string;
+  pendingReviewPayableAmount?: string;
+  paidPayableAmount?: string;
+  unpaidPayableAmount?: string;
 }
 
 export interface SettlementPaymentSummaryListValue {
   total: number;
   items: SettlementPaymentSummaryRow[];
+  summary?: SettlementPaymentSummarySummary;
   summaryAmount?: string;
 }
 
 export interface SettlementPaymentSummaryQuery {
+  id?: number | string;
+  country?: string;
   affiliateId?: string;
+  affiliateCode?: string;
+  referralCode?: string;
+  mail?: string;
+  ownerId?: number | string;
   status?: string;
   dateRange?: string;
   page?: number;
@@ -613,14 +679,310 @@ export interface SettlementPaymentSummaryQuery {
   trafficApprovedBy?: string;
 }
 
+export interface SettlementCommissionStatementSummary {
+  originCommissionTotal?: string;
+  awardDeductionTotal?: string;
+  manualAdjustmentTotal?: string;
+  payableTotal?: string;
+}
+
+export interface SettlementCommissionStatementRow {
+  statementId?: number | string;
+  settlementId?: number | string;
+  affiliateId?: string;
+  affiliateCode?: string;
+  referralCode?: string;
+  affiliateName?: string;
+  email?: string;
+  ownerName?: string;
+  periodStartDate?: string;
+  periodEndDate?: string;
+  periodLabel?: string;
+  originCommissionAmount?: string;
+  awardDeductionAmount?: string;
+  manualAdjustmentAmount?: string;
+  payableAmount?: string;
+  status?: string;
+  applicationTime?: string;
+  auditTime?: string;
+  settlementTime?: string;
+}
+
+export interface SettlementCommissionStatementListValue {
+  page?: number;
+  pageSize?: number;
+  total?: number;
+  items?: SettlementCommissionStatementRow[];
+  summary?: SettlementCommissionStatementSummary;
+}
+
+export interface SettlementCommissionStatementQuery {
+  page?: number;
+  pageSize?: number;
+  statementId?: number | string;
+  settlementId?: number | string;
+  affiliateCode?: string;
+  referralCode?: string;
+  affiliateName?: string;
+  email?: string;
+  ownerName?: string;
+  status?: string[];
+  periodStartDateFrom?: string;
+  periodStartDateTo?: string;
+  periodEndDateFrom?: string;
+  periodEndDateTo?: string;
+  applicationTimeFrom?: string;
+  applicationTimeTo?: string;
+  auditTimeFrom?: string;
+  auditTimeTo?: string;
+  settlementTimeFrom?: string;
+  settlementTimeTo?: string;
+  payableAmountMin?: string;
+  payableAmountMax?: string;
+  sortBy?: string;
+  sortOrder?: "asc" | "desc" | string;
+  trafficApprovedBy?: string;
+}
+
+export type SettlementUserCommissionStatus =
+  | "INIT"
+  | "CALCULATED"
+  | "FINISHED";
+
+export type SettlementUserCommissionWithdrawStatus =
+  | "UNAPPLIED"
+  | "APPLIED"
+  | "PAID";
+
+export type SettlementUserCommissionSortBy =
+  | "countDate"
+  | "commission"
+  | "awardUsd"
+  | "openValueUsd"
+  | "orderId"
+  | "statementId";
+
+export interface SettlementUserCommissionSummary {
+  totalCommission?: string;
+  totalOriginCommission?: string;
+  totalAwardUsd?: string;
+  totalOriginAwardUsd?: string;
+  totalVolume?: string;
+  totalOpenValueUsd?: string;
+}
+
+export interface SettlementUserCommissionRow {
+  id?: number | string;
+  statementId?: number | string;
+  affiliateId?: string;
+  affiliateCode?: string;
+  referralCode?: string;
+  affiliateName?: string;
+  email?: string;
+  ownerName?: string;
+  customerId?: string;
+  spAccount?: string;
+  orderNo?: string;
+  orderId?: string;
+  symbolCode?: string;
+  currencyType?: string;
+  volume?: string;
+  openValueUsd?: string;
+  spreadPercentage?: string;
+  speed?: string;
+  originSpeed?: string;
+  commission?: string;
+  originCommission?: string;
+  awardUsd?: string;
+  originAwardUsd?: string;
+  status?: SettlementUserCommissionStatus | string;
+  withdrawStatus?: SettlementUserCommissionWithdrawStatus | string;
+  countDate?: string;
+  createTime?: string;
+  updateTime?: string;
+}
+
+export interface SettlementUserCommissionListValue {
+  page?: number;
+  pageSize?: number;
+  total?: number;
+  items?: SettlementUserCommissionRow[];
+  summary?: SettlementUserCommissionSummary;
+}
+
+export type SettlementExportUploadType = "local" | "coss";
+
+export type SettlementCommissionStatementItemSortBy = SettlementUserCommissionSortBy;
+
+export interface SettlementCommissionStatementItemPageQuery {
+  page?: number;
+  pageSize?: number;
+  statementId?: number | string;
+  paymentId?: number | string;
+  search?: string;
+  sortBy?: SettlementCommissionStatementItemSortBy | string;
+  sortOrder?: "asc" | "desc" | string;
+  trafficApprovedBy?: string;
+}
+
+export type SettlementCommissionStatementItemRow = SettlementUserCommissionRow;
+
+export type SettlementCommissionStatementItemSummary = SettlementUserCommissionSummary;
+
+export interface SettlementCommissionStatementItemPageValue {
+  page?: number;
+  pageSize?: number;
+  total?: number;
+  items?: SettlementCommissionStatementItemRow[];
+  summary?: SettlementCommissionStatementItemSummary;
+}
+
+export interface SettlementUserCommissionQuery {
+  page?: number;
+  pageSize?: number;
+  statementId?: number | string;
+  affiliateCode?: string;
+  referralCode?: string;
+  affiliateName?: string;
+  email?: string;
+  ownerName?: string;
+  customerId?: string;
+  spAccount?: string;
+  orderNo?: string;
+  orderId?: string;
+  symbolCode?: string;
+  currencyType?: string;
+  status?: Array<SettlementUserCommissionStatus | string>;
+  withdrawStatus?: Array<SettlementUserCommissionWithdrawStatus | string>;
+  countDateFrom?: string;
+  countDateTo?: string;
+  commissionMin?: string;
+  commissionMax?: string;
+  awardUsdMin?: string;
+  awardUsdMax?: string;
+  openValueUsdMin?: string;
+  openValueUsdMax?: string;
+  sortBy?: SettlementUserCommissionSortBy | string;
+  sortOrder?: "asc" | "desc" | string;
+  trafficApprovedBy?: string;
+}
+
+export type SettlementTransactionRecordSortBy =
+  | "openTime"
+  | "closeTime"
+  | "openValueUsd"
+  | "profit"
+  | "orderSpreadAwardUsd"
+  | "orderId";
+
+export interface SettlementTransactionRecordSummary {
+  totalLots?: string;
+  totalVolume?: string;
+  totalOpenValueUsd?: string;
+  totalProfit?: string;
+  totalOpeningSpreadCostUsd?: string;
+  totalClosingSpreadCostUsd?: string;
+  totalOrderSpreadAwardUsd?: string;
+}
+
+export interface SettlementTransactionRecordRow {
+  customerId?: string;
+  spAccount?: string;
+  affiliateId?: string;
+  affiliateCode?: string;
+  referralCode?: string;
+  affiliateName?: string;
+  email?: string;
+  ownerName?: string;
+  orderNo?: string;
+  orderId?: string;
+  symbolCode?: string;
+  symbolType?: string;
+  orderType?: string;
+  orderStatus?: string;
+  lots?: string;
+  volume?: string;
+  openSystem?: string;
+  openTime?: string;
+  closeTime?: string;
+  openPrice?: string;
+  closePrice?: string;
+  currency?: string;
+  margin?: string;
+  profit?: string;
+  swaps?: string;
+  leverage?: string;
+  openingSpreadCost?: string;
+  closingSpreadCost?: string;
+  openValueUsd?: string;
+  openingPrice?: string;
+  currencyType?: string;
+  openingSpreadCostUsd?: string;
+  closingSpreadCostUsd?: string;
+  orderSpreadAwardUsd?: string;
+}
+
+export interface SettlementTransactionRecordListValue {
+  page?: number;
+  pageSize?: number;
+  total?: number;
+  items?: SettlementTransactionRecordRow[];
+  summary?: SettlementTransactionRecordSummary;
+}
+
+export interface SettlementTransactionRecordQuery {
+  page?: number;
+  pageSize?: number;
+  customerId?: string;
+  spAccount?: string;
+  affiliateCode?: string;
+  referralCode?: string;
+  affiliateName?: string;
+  email?: string;
+  ownerName?: string;
+  orderNo?: string;
+  orderId?: string;
+  symbolCode?: string;
+  symbolType?: string;
+  orderType?: string[];
+  orderStatus?: string[];
+  openSystem?: string;
+  currency?: string;
+  openTimeFrom?: string;
+  openTimeTo?: string;
+  closeTimeFrom?: string;
+  closeTimeTo?: string;
+  openValueUsdMin?: string;
+  openValueUsdMax?: string;
+  profitMin?: string;
+  profitMax?: string;
+  orderSpreadAwardUsdMin?: string;
+  orderSpreadAwardUsdMax?: string;
+  sortBy?: SettlementTransactionRecordSortBy | string;
+  sortOrder?: "asc" | "desc" | string;
+  trafficApprovedBy?: string;
+}
+
 export interface SettlementUpdatePaymentSummaryPayload {
   id: number;
   status?: string;
   payoutDate?: string;
   paymentMethods?: string;
   note?: string;
-  paymentFile?: string[];
-  adjustmentsAmount?: number;
+  paymentFile?: SettlementPaymentFile[];
+  adjustmentsAmount?: string | number;
+}
+
+export interface SettlementCreatePaymentSummaryPayload {
+  paymentIds: number[];
+  adjustmentsAmount?: string;
+  note?: string;
+  paymentMethods?: string;
+  paymentFile?: SettlementPaymentFile[];
+}
+
+export interface SettlementCreatePaymentSummaryValue {
+  settlementId?: number;
 }
 
 export interface SettlementUpdateStatementPayload {
@@ -628,14 +990,17 @@ export interface SettlementUpdateStatementPayload {
   status?: string;
   payoutDate?: string;
   paymentMethods?: string;
-  adjustmentsAmount?: number;
+  adjustmentsAmount?: string | number;
 }
 
 export interface AdminUploadedFile {
-  id?: number;
+  id?: number | string;
   originalName?: string;
   storedName?: string;
+  name?: string;
+  path?: string;
   contentType?: string;
+  type?: string;
   size?: number;
   url?: string;
   downloadUrl?: string;

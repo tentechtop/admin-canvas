@@ -1,7 +1,8 @@
 import { PLATFORM_CODE } from "@/lib/http";
+import { downloadAuthenticatedExportFile } from "@/lib/business-download";
 import { businessRequest } from "@/lib/business-http";
+import { normalizeSettlementPaymentFiles } from "@/lib/settlement-payment-files";
 import type {
-  AffiliateAuditListValue,
   AffiliateAuditQuery,
   AffiliateDetailWithLogsValue,
   AffiliateBdOwnerUpdatePayload,
@@ -10,8 +11,10 @@ import type {
   AffiliateCommissionRateLogValue,
   AffiliateCommissionRateUpdatePayload,
   AffiliateCommissionRateUpdateResult,
+  AffiliateCompleteInfo,
   AffiliateModificationReviewPayload,
   KolKycUpdatePayload,
+  KolKycUpdateAndStatusAuditPayload,
   AffiliateReviewLogValue,
   AdminUploadedFile,
   AffiliateReviewUpdatePayload,
@@ -32,12 +35,24 @@ import type {
   PerformanceReportValue,
   ReviewAggregateCountValue,
   SettlementDashboardValue,
+  SettlementCommissionStatementItemPageQuery,
+  SettlementCommissionStatementItemPageValue,
+  SettlementCommissionStatementListValue,
+  SettlementCommissionStatementQuery,
+  SettlementCommissionStatementRow,
+  SettlementCreatePaymentSummaryPayload,
+  SettlementCreatePaymentSummaryValue,
   SettlementPaymentCommissionValue,
   SettlementPaymentSummaryListValue,
   SettlementPaymentSummaryQuery,
   SettlementPaymentSummaryRow,
   SettlementStatementListValue,
   SettlementStatementQuery,
+  SettlementTransactionRecordListValue,
+  SettlementTransactionRecordQuery,
+  SettlementUserCommissionListValue,
+  SettlementExportUploadType,
+  SettlementUserCommissionQuery,
   SettlementUpdatePaymentSummaryPayload,
   SettlementUpdateStatementPayload,
   RoleDataPermissionConfig,
@@ -45,6 +60,9 @@ import type {
   RoleDataPermissionSavePayload,
   TradeReportQuery,
   TradeReportValue,
+  AffiliateKycReviewListValue,
+  AffiliateKolInfoListValue,
+  AffiliateTrafficReviewListValue,
 } from "@/types/affiliate-console";
 
 export const CONSOLE_PLATFORM_CODE = PLATFORM_CODE || "kol";
@@ -53,6 +71,76 @@ function cleanParams(params: Record<string, unknown>) {
   return Object.fromEntries(
     Object.entries(params).filter(([, value]) => value !== "" && value !== undefined && value !== null),
   );
+}
+
+function repeatArrayParams(params: Record<string, unknown>) {
+  const search = new URLSearchParams();
+
+  Object.entries(params).forEach(([key, rawValue]) => {
+    if (rawValue === "" || rawValue === undefined || rawValue === null) {
+      return;
+    }
+
+    if (Array.isArray(rawValue)) {
+      rawValue
+        .filter((item) => item !== "" && item !== undefined && item !== null)
+        .forEach((item) => search.append(key, String(item)));
+      return;
+    }
+
+    search.append(key, String(rawValue));
+  });
+
+  return search.toString();
+}
+
+function buildSettlementUserCommissionParams(
+  params: SettlementUserCommissionQuery,
+  options?: { includePagination?: boolean; uploadType?: SettlementExportUploadType },
+) {
+  const includePagination = options?.includePagination ?? true;
+
+  return cleanParams({
+    ...(includePagination
+      ? {
+          page: params.page ?? 1,
+          pageSize: params.pageSize ?? 20,
+        }
+      : {}),
+    statementId: params.statementId,
+    affiliateCode: params.affiliateCode,
+    referralCode: params.referralCode,
+    affiliateName: params.affiliateName,
+    email: params.email,
+    ownerName: params.ownerName,
+    customerId: params.customerId,
+    spAccount: params.spAccount,
+    orderNo: params.orderNo,
+    orderId: params.orderId,
+    symbolCode: params.symbolCode,
+    currencyType: params.currencyType,
+    status: params.status,
+    withdrawStatus: params.withdrawStatus,
+    countDateFrom: params.countDateFrom,
+    countDateTo: params.countDateTo,
+    commissionMin: params.commissionMin,
+    commissionMax: params.commissionMax,
+    awardUsdMin: params.awardUsdMin,
+    awardUsdMax: params.awardUsdMax,
+    openValueUsdMin: params.openValueUsdMin,
+    openValueUsdMax: params.openValueUsdMax,
+    sortBy: params.sortBy,
+    sortOrder: params.sortOrder,
+    trafficApprovedBy: params.trafficApprovedBy,
+    uploadType: options?.uploadType,
+  });
+}
+
+function normalizeSettlementPaymentSummaryRow(row: SettlementPaymentSummaryRow): SettlementPaymentSummaryRow {
+  return {
+    ...row,
+    paymentFile: normalizeSettlementPaymentFiles(row.paymentFile),
+  };
 }
 
 export const affiliateConsoleApi = {
@@ -84,21 +172,21 @@ export const affiliateConsoleApi = {
     }),
 
   listAffiliates: (params: AffiliateAuditQuery) =>
-    businessRequest<AffiliateAuditListValue>({
+    businessRequest<AffiliateTrafficReviewListValue>({
       url: "/affiliate/list",
       method: "GET",
       params,
     }),
 
   listKycReviews: (params: AffiliateAuditQuery) =>
-    businessRequest<AffiliateAuditListValue>({
+    businessRequest<AffiliateKycReviewListValue>({
       url: "/admin/affiliate/kycReview",
       method: "GET",
       params: cleanParams(params),
     }),
 
   listKolInfoStatistics: (params: AffiliateAuditQuery) =>
-    businessRequest<AffiliateAuditListValue>({
+    businessRequest<AffiliateKolInfoListValue>({
       url: "/admin/kolUserStatistics",
       method: "GET",
       params: cleanParams(params),
@@ -244,6 +332,13 @@ export const affiliateConsoleApi = {
       data: payload,
     }),
 
+  updateKolKycAndKycStatusAudit: (payload: KolKycUpdateAndStatusAuditPayload) =>
+    businessRequest<AffiliateCompleteInfo>({
+      url: "/admin/kolKycUpdateAndKycStatusAudit",
+      method: "PUT",
+      data: payload,
+    }),
+
   reviewModificationApplication: (payload: AffiliateModificationReviewPayload) =>
     businessRequest<Record<string, unknown>>({
       url: "/admin/affiliate/reviewModificationApplication",
@@ -319,6 +414,126 @@ export const affiliateConsoleApi = {
       params: cleanParams({ adminId }),
     }),
 
+  listSettlementCommissionStatements: (params: SettlementCommissionStatementQuery) =>
+    businessRequest<SettlementCommissionStatementListValue>({
+      url: "/admin/affinex/commissionStatement",
+      method: "GET",
+      params: cleanParams({
+        page: params.page ?? 1,
+        pageSize: params.pageSize ?? 20,
+        statementId: params.statementId,
+        settlementId: params.settlementId,
+        affiliateCode: params.affiliateCode,
+        referralCode: params.referralCode,
+        affiliateName: params.affiliateName,
+        email: params.email,
+        ownerName: params.ownerName,
+        status: params.status,
+        periodStartDateFrom: params.periodStartDateFrom,
+        periodStartDateTo: params.periodStartDateTo,
+        periodEndDateFrom: params.periodEndDateFrom,
+        periodEndDateTo: params.periodEndDateTo,
+        applicationTimeFrom: params.applicationTimeFrom,
+        applicationTimeTo: params.applicationTimeTo,
+        auditTimeFrom: params.auditTimeFrom,
+        auditTimeTo: params.auditTimeTo,
+        settlementTimeFrom: params.settlementTimeFrom,
+        settlementTimeTo: params.settlementTimeTo,
+        payableAmountMin: params.payableAmountMin,
+        payableAmountMax: params.payableAmountMax,
+        sortBy: params.sortBy,
+        sortOrder: params.sortOrder,
+        trafficApprovedBy: params.trafficApprovedBy,
+      }),
+      paramsSerializer: { serialize: repeatArrayParams },
+    }),
+
+  getSettlementCommissionStatementDetail: (statementId: number | string) =>
+    businessRequest<SettlementCommissionStatementRow>({
+      url: "/admin/affinex/getCommissionStatementDetail",
+      method: "GET",
+      params: cleanParams({ statementId }),
+    }),
+
+  listSettlementCommissionStatementItems: (params: SettlementCommissionStatementItemPageQuery) =>
+    businessRequest<SettlementCommissionStatementItemPageValue>({
+      url: "/admin/affinex/getCommissionStatementItemPage",
+      method: "GET",
+      params: cleanParams({
+        page: params.page ?? 1,
+        pageSize: params.pageSize ?? 20,
+        statementId: params.statementId,
+        paymentId: params.paymentId,
+        search: params.search,
+        sortBy: params.sortBy,
+        sortOrder: params.sortOrder,
+        trafficApprovedBy: params.trafficApprovedBy,
+      }),
+    }),
+
+  listSettlementTransactionRecords: (params: SettlementTransactionRecordQuery) =>
+    businessRequest<SettlementTransactionRecordListValue>({
+      url: "/admin/affinex/customerTrade",
+      method: "GET",
+      params: cleanParams({
+        page: params.page ?? 1,
+        pageSize: params.pageSize ?? 20,
+        customerId: params.customerId,
+        spAccount: params.spAccount,
+        affiliateCode: params.affiliateCode,
+        referralCode: params.referralCode,
+        affiliateName: params.affiliateName,
+        email: params.email,
+        ownerName: params.ownerName,
+        orderNo: params.orderNo,
+        orderId: params.orderId,
+        symbolCode: params.symbolCode,
+        symbolType: params.symbolType,
+        orderType: params.orderType,
+        orderStatus: params.orderStatus,
+        openSystem: params.openSystem,
+        currency: params.currency,
+        openTimeFrom: params.openTimeFrom,
+        openTimeTo: params.openTimeTo,
+        closeTimeFrom: params.closeTimeFrom,
+        closeTimeTo: params.closeTimeTo,
+        openValueUsdMin: params.openValueUsdMin,
+        openValueUsdMax: params.openValueUsdMax,
+        profitMin: params.profitMin,
+        profitMax: params.profitMax,
+        orderSpreadAwardUsdMin: params.orderSpreadAwardUsdMin,
+        orderSpreadAwardUsdMax: params.orderSpreadAwardUsdMax,
+        sortBy: params.sortBy,
+        sortOrder: params.sortOrder,
+        trafficApprovedBy: params.trafficApprovedBy,
+      }),
+      paramsSerializer: { serialize: repeatArrayParams },
+    }),
+
+  listSettlementUserCommissions: (params: SettlementUserCommissionQuery) =>
+    businessRequest<SettlementUserCommissionListValue>({
+      url: "/admin/affinex/userCommission",
+      method: "GET",
+      params: buildSettlementUserCommissionParams(params),
+      paramsSerializer: { serialize: repeatArrayParams },
+    }),
+
+  exportSettlementUserCommissions: (
+    params: SettlementUserCommissionQuery,
+    options?: {
+      includePagination?: boolean;
+      uploadType: SettlementExportUploadType;
+      signal?: AbortSignal;
+    },
+  ) =>
+    downloadAuthenticatedExportFile({
+      url: "/admin/affinex/export/userCommission",
+      method: "GET",
+      params: buildSettlementUserCommissionParams(params, options),
+      paramsSerializer: { serialize: repeatArrayParams },
+      signal: options?.signal,
+    }),
+
   listSettlementStatements: async (params: SettlementStatementQuery) => {
     const result = await businessRequest<{
       total?: number;
@@ -382,12 +597,26 @@ export const affiliateConsoleApi = {
   listSettlementPaymentSummaries: async (params: SettlementPaymentSummaryQuery) => {
     const result = await businessRequest<{
       total?: number;
+      items?: SettlementPaymentSummaryRow[];
       paymentSummary?: SettlementPaymentSummaryRow[];
+      summary?: {
+        totalPayableAmount?: string;
+        pendingReviewPayableAmount?: string;
+        paidPayableAmount?: string;
+        unpaidPayableAmount?: string;
+        amountPayableSum?: string;
+      };
     }>({
       url: "/admin/payment_summary",
       method: "GET",
       params: cleanParams({
+        id: params.id,
+        country: params.country,
         affiliateId: params.affiliateId,
+        affiliateCode: params.affiliateCode,
+        referralCode: params.referralCode,
+        mail: params.mail,
+        ownerId: params.ownerId,
         status: params.status,
         dateRange: params.dateRange,
         page: params.page ?? 1,
@@ -398,15 +627,35 @@ export const affiliateConsoleApi = {
       }),
     });
 
-    const rawItems = result.value.paymentSummary ?? [];
+    const rawItems = (result.value.items ?? result.value.paymentSummary ?? []).map((item) =>
+      normalizeSettlementPaymentSummaryRow(item),
+    );
     const summaryRow = rawItems.find((item) => String(item.affiliateId ?? "").toUpperCase() === "TOTAL");
+    const normalizedItems =
+      result.value.items == null
+        ? rawItems.filter((item) => String(item.affiliateId ?? "").toUpperCase() !== "TOTAL")
+        : rawItems;
+    const summaryAmount =
+      result.value.summary?.totalPayableAmount ??
+      result.value.summary?.amountPayableSum ??
+      summaryRow?.payableAmount;
+    const summary =
+      result.value.summary == null && !summaryAmount
+        ? undefined
+        : {
+            totalPayableAmount: result.value.summary?.totalPayableAmount ?? summaryAmount,
+            pendingReviewPayableAmount: result.value.summary?.pendingReviewPayableAmount,
+            paidPayableAmount: result.value.summary?.paidPayableAmount,
+            unpaidPayableAmount: result.value.summary?.unpaidPayableAmount,
+          };
 
     return {
       ...result,
       value: {
         total: Number(result.value.total ?? 0),
-        items: rawItems.filter((item) => String(item.affiliateId ?? "").toUpperCase() !== "TOTAL"),
-        summaryAmount: summaryRow?.payableAmount,
+        items: normalizedItems,
+        summary,
+        summaryAmount,
       } satisfies SettlementPaymentSummaryListValue,
     };
   },
@@ -420,9 +669,28 @@ export const affiliateConsoleApi = {
 
     return {
       ...result,
-      value: result.value ?? {},
+      value: normalizeSettlementPaymentSummaryRow(result.value ?? {}),
     };
   },
+
+  createSettlementPaymentSummary: (payload: SettlementCreatePaymentSummaryPayload) =>
+    businessRequest<SettlementCreatePaymentSummaryValue>({
+      url: "/admin/affinex/createPaymentSummary",
+      method: "POST",
+      data: (() => {
+        const paymentFiles = normalizeSettlementPaymentFiles(payload.paymentFile);
+
+        return cleanParams({
+          paymentIds: payload.paymentIds
+            .map((id) => Number(id))
+            .filter((id) => Number.isInteger(id) && id > 0),
+          adjustmentsAmount: String(payload.adjustmentsAmount ?? "").trim() || "0",
+          note: String(payload.note ?? "").trim(),
+          paymentMethods: String(payload.paymentMethods ?? "").trim(),
+          paymentFile: paymentFiles.length > 0 ? paymentFiles : undefined,
+        });
+      })(),
+    }),
 
   mergeSettlementPaymentSummary: (paymentIds: Array<number | string>, adminId?: number | string) =>
     businessRequest<{ success?: boolean; code?: number; message?: string }>({
@@ -440,7 +708,9 @@ export const affiliateConsoleApi = {
       method: "PUT",
       data: cleanParams({
         ...payload,
-        paymentFile: payload.paymentFile,
+        paymentFile: Object.prototype.hasOwnProperty.call(payload, "paymentFile")
+          ? normalizeSettlementPaymentFiles(payload.paymentFile)
+          : undefined,
       }),
     }),
 
@@ -448,21 +718,15 @@ export const affiliateConsoleApi = {
     const formData = new FormData();
     formData.append("file", file);
 
-    const result = await businessRequest<unknown>({
-      url: "/admin/files/upload",
+    const result = await businessRequest<AdminUploadedFile[]>({
+      url: "/resource-api/op/resource/v1/file/upload",
       method: "POST",
       data: formData,
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
     });
 
     return {
       ...result,
-      value:
-        ((result.envelope as { item?: AdminUploadedFile; value?: AdminUploadedFile }).item ??
-          (result.envelope as { item?: AdminUploadedFile; value?: AdminUploadedFile }).value ??
-          null),
+      value: (result.value ?? [])[0] ?? null,
     };
   },
 };

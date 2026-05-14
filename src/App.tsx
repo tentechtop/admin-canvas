@@ -7,9 +7,11 @@ import ProtectedRoute from "./components/auth/ProtectedRoute";
 import { AuthProvider } from "./contexts/AuthContext";
 import { marketingRoutes } from "./features/marketing-center/config";
 import AffiliateProfilePage from "./pages/AffiliateProfilePage";
+import DashboardScreen from "./pages/DashboardScreen";
 import DynamicPage from "./pages/DynamicPage";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
+import KolLogPage from "./pages/log/KolLogPage";
 import KycManagementPage from "./pages/manage/KycManagementPage";
 import MarketingActivitiesPage from "./pages/marketing-center/MarketingActivitiesPage";
 import MarketingActivityDetailPage from "./pages/marketing-center/MarketingActivityDetailPage";
@@ -56,6 +58,22 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <KycManagementPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/dashboard/screen"
+              element={
+                <ProtectedRoute>
+                  <DashboardScreen />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/log/kol-log"
+              element={
+                <ProtectedRoute>
+                  <KolLogPage />
                 </ProtectedRoute>
               }
             />

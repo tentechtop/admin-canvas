@@ -141,7 +141,7 @@ export const marketingQuickLinks: Array<{
   },
   {
     title: "Data Reports",
-    description: "Inspect the current publish snapshot while richer reports wait for backend support.",
+    description: "Review promotion link summary metrics alongside the current material and activity publish snapshots.",
     path: marketingRoutes.reports,
     icon: BarChart3,
   },

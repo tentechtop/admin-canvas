@@ -1,5 +1,10 @@
+export type FileStorageProvider = "local" | "coss";
+
+export type FileStorageConfigType = FileStorageProvider;
+
 export interface FileStorageConfig {
-  provider: string;
+  provider: FileStorageProvider | "";
+  uploadUrl: string;
   publicBaseUrl: string;
   localRootDir: string;
   updatedAt: string;
@@ -7,6 +12,8 @@ export interface FileStorageConfig {
 
 export interface FileStorageConfigWire {
   provider?: string;
+  uploadUrl?: string;
+  upload_url?: string;
   publicBaseUrl?: string;
   public_base_url?: string;
   localRootDir?: string;
@@ -25,7 +32,8 @@ export interface FileStorageConfigEnvelope {
 }
 
 export interface UpdateFileStorageConfigPayload {
-  provider: string;
+  provider: FileStorageProvider;
+  uploadUrl?: string;
   publicBaseUrl?: string;
   localRootDir?: string;
 }

@@ -45,6 +45,20 @@ const pageAliases: Array<{
       /(role[._-]?permission|permission[._-]?scenario)/i.test(code) &&
       !/role[._-]?data[._-]?permission/i.test(code),
   },
+  {
+    file: "../pages/dynamic/KOL_SETTLEMENT_KOL_COMMISSION.tsx",
+    test: (code) =>
+      /(settlement[._-]?center[._-]?kol[._-]?commission|kol[._-]?settlement[._-]?kol[._-]?commission|user[._-]?commission)/i.test(
+        code,
+      ),
+  },
+  {
+    file: "../pages/dynamic/KOL_SYSTEM_FILE_UPLOAD_CONFIG.tsx",
+    test: (code) =>
+      /(system[._-]?file[._-]?(upload|storage)[._-]?config|file[._-]?storage[._-]?config)/i.test(
+        code,
+      ),
+  },
 ];
 
 function findLoader(code: string) {

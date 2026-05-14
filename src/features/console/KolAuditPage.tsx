@@ -64,11 +64,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { previewToText, BusinessHttpError } from "@/lib/business-http";
 import { cn } from "@/lib/utils";
 import type {
-  AffiliateAuditListValue,
   AffiliateAuditQuery,
-  AffiliateAuditRow,
   AffiliateCommissionRateLogValue,
+  AffiliateKycReviewListValue,
+  AffiliateKycReviewRow,
   AffiliateReviewLogEntry,
+  AffiliateTrafficReviewListValue,
+  AffiliateTrafficReviewRow,
   AuthUserInfo,
   KycReviewStatus,
   TrafficReviewStatus,
@@ -85,11 +87,12 @@ import { toast } from "sonner";
 
 type AuditTab = "traffic" | "kyc";
 type DetailLogMode = AuditTab | "commission";
+type AuditRow = AffiliateTrafficReviewRow | AffiliateKycReviewRow;
 
 type DetailDialogState = {
   open: boolean;
   mode: AuditTab;
-  row: AffiliateAuditRow | null;
+  row: AuditRow | null;
   loading: boolean;
   requestText: string;
   responseText: string;
@@ -98,7 +101,7 @@ type DetailDialogState = {
 type ReviewDialogState = {
   open: boolean;
   mode: AuditTab;
-  row: AffiliateAuditRow | null;
+  row: AuditRow | null;
   status: TrafficReviewStatus | KycReviewStatus | "";
   submitting: boolean;
   accountType: string;
@@ -298,63 +301,62 @@ function nextPage(current: string | number | undefined, delta: number) {
   return String(Math.max(1, Number(current || "1") + delta));
 }
 
-function statusForRow(mode: AuditTab, row?: AffiliateAuditRow | null) {
+function statusForRow(mode: AuditTab, row?: AuditRow | null) {
   return mode === "traffic"
-    ? String(row?.trafficResourceStatus ?? "")
-    : String(row?.idKYCStatus ?? "");
+    ? String((row as AffiliateTrafficReviewRow | null | undefined)?.trafficResourceStatus ?? "")
+    : String((row as AffiliateKycReviewRow | null | undefined)?.idKYCStatus ?? "");
 }
 
-function auditTimeForRow(mode: AuditTab, row?: AffiliateAuditRow | null) {
-  return mode === "traffic"
-    ? String(row?.trafficAuditTime ?? row?.auditTime ?? "")
-    : String(row?.reviewTime ?? row?.auditTime ?? "");
+function trafficAuditTimeForRow(row?: AffiliateTrafficReviewRow | null) {
+  return String(row?.trafficReviewTime ?? "").trim() || "-";
 }
 
-function ownerForRow(row?: AffiliateAuditRow | null) {
+function kycAuditTimeForRow(row?: AffiliateKycReviewRow | null) {
+  return String(row?.kycReviewTime ?? "").trim() || "-";
+}
+
+function ownerForRow(row?: AuditRow | null) {
   return String(row?.bdOwnerUsernameSnapshot ?? row?.owner ?? "").trim() || "-";
 }
 
-function websitesForRow(row?: AffiliateAuditRow | null) {
-  const candidates = [
-    row?.websites,
-    row?.trafficSource,
-    (row as Record<string, unknown> | null)?.websites,
-    (row as Record<string, unknown> | null)?.trafficSource,
-  ];
+function websitesForRow(row?: AffiliateTrafficReviewRow | null) {
+  const websites = row?.websites;
 
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) {
-      const normalized = candidate
-        .map((item) => String(item ?? "").trim())
-        .filter(Boolean);
-      if (normalized.length > 0) {
-        return normalized.join(", ");
-      }
+  if (Array.isArray(websites)) {
+    const normalized = websites
+      .map((item) => String(item ?? "").trim())
+      .filter(Boolean);
+    if (normalized.length > 0) {
+      return normalized.join(", ");
     }
+  }
 
-    const text = String(candidate ?? "").trim();
-    if (text) {
-      return text;
-    }
+  const text = String(websites ?? "").trim();
+  if (text) {
+    return text;
   }
 
   return "-";
 }
 
-function reviewerForTrafficRow(row?: AffiliateAuditRow | null) {
-  return String(row?.reviewerUsernameSnapshot ?? "").trim() || "-";
+function trafficReviewerForRow(row?: AffiliateTrafficReviewRow | null) {
+  return String(row?.trafficReviewer ?? row?.reviewerUsernameSnapshot ?? "").trim() || "-";
 }
 
-function reviewerForKycRow(row?: AffiliateAuditRow | null) {
-  return String(row?.reviewerUsernameSnapshot ?? row?.reviewer ?? "").trim() || "-";
+function kycReviewerForRow(row?: AffiliateKycReviewRow | null) {
+  return String(row?.kycReviewer ?? row?.reviewerUsernameSnapshot ?? "").trim() || "-";
 }
 
-function applicationTimeForKycRow(row?: AffiliateAuditRow | null) {
-  return String(row?.applicationTime ?? row?.createTime ?? "").trim() || "-";
+function trafficApplicationTimeForRow(row?: AffiliateTrafficReviewRow | null) {
+  return String(row?.trafficApplicationTime ?? row?.createTime ?? "").trim() || "-";
 }
 
-function remarkForKycRow(row?: AffiliateAuditRow | null) {
-  return String(row?.remark ?? row?.idApproverNotes ?? "").trim() || "-";
+function kycApplicationTimeForRow(row?: AffiliateKycReviewRow | null) {
+  return String(row?.kycApplicationTime ?? row?.createTime ?? "").trim() || "-";
+}
+
+function kycRemarkForRow(row?: AffiliateKycReviewRow | null) {
+  return String(row?.kycRemark ?? "").trim() || "-";
 }
 
 function normalizeBdIdentity(value: unknown) {
@@ -386,7 +388,7 @@ function findBdUserByIdentity(users: AuthUserInfo[], candidate: string) {
 
 function resolveReviewDialogBdAdminId(
   users: AuthUserInfo[],
-  row?: AffiliateAuditRow | null,
+  row?: AuditRow | null,
   entries: AffiliateReviewLogEntry[] = [],
   currentBdAdminId?: string,
 ) {
@@ -399,7 +401,6 @@ function resolveReviewDialogBdAdminId(
   const adminIdCandidates: string[] = [];
   const identityCandidates: string[] = [];
 
-  pushUniqueCandidate(adminIdCandidates, row?.bdOwnerAdminId);
   pushUniqueCandidate(identityCandidates, row?.bdOwnerUsernameSnapshot);
   pushUniqueCandidate(identityCandidates, row?.owner);
 
@@ -455,7 +456,13 @@ function accountTypeOptions(...values: Array<string | undefined>) {
   return Array.from(options);
 }
 
-function QuerySummary({ data }: { data: AffiliateAuditListValue }) {
+function QuerySummary({
+  data,
+}: {
+  data:
+    | AffiliateTrafficReviewListValue
+    | AffiliateKycReviewListValue;
+}) {
   return (
     <div className="text-sm text-muted-foreground">
       Total {data.total ?? 0} rows. Page {data.currentPage ?? 1} / {data.totalPages ?? 1}
@@ -1466,25 +1473,40 @@ function BdCombobox({
   );
 }
 
-function ReviewTable({
-  mode,
-  rows,
-  loading,
-  emptyTitle,
-  onOpenAffiliateProfile,
-  onDetail,
-  onApprove,
-  onReject,
-}: {
-  mode: AuditTab;
-  rows: AffiliateAuditRow[];
+type TrafficReviewTableProps = {
+  mode: "traffic";
+  rows: AffiliateTrafficReviewRow[];
   loading: boolean;
   emptyTitle: string;
-  onOpenAffiliateProfile: (row: AffiliateAuditRow) => void;
-  onDetail: (row: AffiliateAuditRow) => void;
-  onApprove: (row: AffiliateAuditRow) => void;
-  onReject: (row: AffiliateAuditRow) => void;
-}) {
+  onOpenAffiliateProfile: (row: AffiliateTrafficReviewRow) => void;
+  onDetail: (row: AffiliateTrafficReviewRow) => void;
+  onApprove: (row: AffiliateTrafficReviewRow) => void;
+  onReject: (row: AffiliateTrafficReviewRow) => void;
+};
+
+type KycReviewTableProps = {
+  mode: "kyc";
+  rows: AffiliateKycReviewRow[];
+  loading: boolean;
+  emptyTitle: string;
+  onOpenAffiliateProfile: (row: AffiliateKycReviewRow) => void;
+  onDetail: (row: AffiliateKycReviewRow) => void;
+  onApprove: (row: AffiliateKycReviewRow) => void;
+  onReject: (row: AffiliateKycReviewRow) => void;
+};
+
+function ReviewTable(props: TrafficReviewTableProps | KycReviewTableProps) {
+  const {
+    mode,
+    rows,
+    loading,
+    emptyTitle,
+    onOpenAffiliateProfile,
+    onDetail,
+    onApprove,
+    onReject,
+  } = props;
+
   if (rows.length === 0 && loading) {
     return (
       <div className="flex h-40 items-center justify-center rounded-2xl border bg-muted/10 text-sm text-muted-foreground">
@@ -1549,71 +1571,88 @@ function ReviewTable({
             {rows.map((row) => {
               const affiliateId = String(row.affiliateId ?? "");
 
+              if (mode === "traffic") {
+                const trafficRow = row as AffiliateTrafficReviewRow;
+
+                return (
+                  <TableRow key={affiliateId}>
+                    <TableCell>{trafficRow.name || "-"}</TableCell>
+                    <TableCell>{trafficRow.mail || "-"}</TableCell>
+                    <TableCell>{String(trafficRow.countryCode ?? "-")}</TableCell>
+                    <TableCell className="max-w-[280px]">
+                      <span className="break-all">{websitesForRow(trafficRow)}</span>
+                    </TableCell>
+                    <TableCell>{trafficApplicationTimeForRow(trafficRow)}</TableCell>
+                    <TableCell>
+                      <StatusBadge status={statusForRow(mode, trafficRow)} />
+                    </TableCell>
+                    <TableCell>{trafficReviewerForRow(trafficRow)}</TableCell>
+                    <TableCell>{trafficAuditTimeForRow(trafficRow)}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="button" variant="outline" size="sm" onClick={() => onDetail(trafficRow)}>
+                          Detail
+                        </Button>
+                        <Button type="button" variant="secondary" size="sm" onClick={() => onApprove(trafficRow)}>
+                          Approve
+                        </Button>
+                        <Button type="button" variant="destructive" size="sm" onClick={() => onReject(trafficRow)}>
+                          Reject
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              }
+
+              const kycRow = row as AffiliateKycReviewRow;
+
               return (
                 <TableRow key={affiliateId}>
-                  {mode === "traffic" ? (
-                    <>
-                      <TableCell>{row.name || "-"}</TableCell>
-                      <TableCell>{row.mail || "-"}</TableCell>
-                      <TableCell>{String(row.countryCode ?? "-")}</TableCell>
-                      <TableCell className="max-w-[280px]">
-                        <span className="break-all">{websitesForRow(row)}</span>
-                      </TableCell>
-                      <TableCell>{String(row.createTime ?? "-")}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={statusForRow(mode, row)} />
-                      </TableCell>
-                      <TableCell>{reviewerForTrafficRow(row)}</TableCell>
-                      <TableCell>{auditTimeForRow(mode, row) || "-"}</TableCell>
-                    </>
-                  ) : (
-                    <>
-                      <TableCell>
-                        {String(row.affiliateCode ?? "").trim() || affiliateId ? (
-                          <Button
-                            type="button"
-                            variant="link"
-                            className="h-auto p-0 font-mono text-xs"
-                            onClick={() => onOpenAffiliateProfile(row)}
-                          >
-                            {String(row.affiliateCode ?? "").trim() || affiliateId}
-                          </Button>
-                        ) : (
-                          <span className="font-mono text-xs">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="max-w-[220px]">
-                        <span className="break-all">{String(row.referralCode ?? "-")}</span>
-                      </TableCell>
-                      <TableCell>{row.name || "-"}</TableCell>
-                      <TableCell>{row.mail || "-"}</TableCell>
-                      <TableCell>{String(row.countryCode ?? "-")}</TableCell>
-                      <TableCell>{ownerForRow(row)}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={statusForRow(mode, row)} />
-                      </TableCell>
-                      <TableCell>{applicationTimeForKycRow(row)}</TableCell>
-                      <TableCell>
-                        <Button type="button" variant="secondary" size="sm" onClick={() => onDetail(row)}>
-                          View
-                        </Button>
-                      </TableCell>
-                      <TableCell>{reviewerForKycRow(row)}</TableCell>
-                      <TableCell>{auditTimeForRow(mode, row) || "-"}</TableCell>
-                      <TableCell className="max-w-[220px]">
-                        <span className="break-words">{remarkForKycRow(row)}</span>
-                      </TableCell>
-                    </>
-                  )}
+                  <TableCell>
+                    {String(kycRow.affiliateCode ?? "").trim() || affiliateId ? (
+                      <Button
+                        type="button"
+                        variant="link"
+                        className="h-auto p-0 font-mono text-xs"
+                        onClick={() => onOpenAffiliateProfile(kycRow)}
+                      >
+                        {String(kycRow.affiliateCode ?? "").trim() || affiliateId}
+                      </Button>
+                    ) : (
+                      <span className="font-mono text-xs">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="max-w-[220px]">
+                    <span className="break-all">{String(kycRow.referralCode ?? "-")}</span>
+                  </TableCell>
+                  <TableCell>{kycRow.name || "-"}</TableCell>
+                  <TableCell>{kycRow.mail || "-"}</TableCell>
+                  <TableCell>{String(kycRow.countryCode ?? "-")}</TableCell>
+                  <TableCell>{ownerForRow(kycRow)}</TableCell>
+                  <TableCell>
+                    <StatusBadge status={statusForRow(mode, kycRow)} />
+                  </TableCell>
+                  <TableCell>{kycApplicationTimeForRow(kycRow)}</TableCell>
+                  <TableCell>
+                    <Button type="button" variant="secondary" size="sm" onClick={() => onDetail(kycRow)}>
+                      View
+                    </Button>
+                  </TableCell>
+                  <TableCell>{kycReviewerForRow(kycRow)}</TableCell>
+                  <TableCell>{kycAuditTimeForRow(kycRow)}</TableCell>
+                  <TableCell className="max-w-[220px]">
+                    <span className="break-words">{kycRemarkForRow(kycRow)}</span>
+                  </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-2">
-                      <Button type="button" variant="outline" size="sm" onClick={() => onDetail(row)}>
+                      <Button type="button" variant="outline" size="sm" onClick={() => onDetail(kycRow)}>
                         Detail
                       </Button>
-                      <Button type="button" variant="secondary" size="sm" onClick={() => onApprove(row)}>
+                      <Button type="button" variant="secondary" size="sm" onClick={() => onApprove(kycRow)}>
                         Approve
                       </Button>
-                      <Button type="button" variant="destructive" size="sm" onClick={() => onReject(row)}>
+                      <Button type="button" variant="destructive" size="sm" onClick={() => onReject(kycRow)}>
                         Reject
                       </Button>
                     </div>
@@ -1644,8 +1683,8 @@ const KolAuditPage = () => {
   const [trafficCounts, setTrafficCounts] = useState({ pending: 0, approved: 0, rejected: 0 });
   const [kycCounts, setKycCounts] = useState({ pending: 0, approved: 0, rejected: 0 });
 
-  const [trafficData, setTrafficData] = useState<AffiliateAuditListValue>({});
-  const [kycData, setKycData] = useState<AffiliateAuditListValue>({});
+  const [trafficData, setTrafficData] = useState<AffiliateTrafficReviewListValue>({});
+  const [kycData, setKycData] = useState<AffiliateKycReviewListValue>({});
 
   const [loadingTraffic, setLoadingTraffic] = useState(true);
   const [loadingKyc, setLoadingKyc] = useState(true);
@@ -2043,7 +2082,7 @@ const KolAuditPage = () => {
     }
   }
 
-  async function openDetailDialog(mode: AuditTab, row: AffiliateAuditRow) {
+  async function openDetailDialog(mode: AuditTab, row: AuditRow) {
     const affiliateId = String(row.affiliateId ?? "");
 
     if (!affiliateId) {
@@ -2087,12 +2126,10 @@ const KolAuditPage = () => {
       const preview = previewToText(result.preview);
       const detailCommissionRate =
         extractCommissionRateFromAuditDetail(result.value) ||
-        String(
-          row.commissionRate ?? row.spreadPercentage ?? row.spread_percentage ?? "",
-        ).trim();
+        String(row.commissionRate ?? "").trim();
       const detailTier =
         extractCommissionTierFromAuditDetail(result.value) ||
-        String(row.tier ?? row.rsTier ?? row.fixedTier ?? "").trim();
+        String(row.tier ?? "").trim();
 
       setDetailDialog((current) =>
         current.row?.affiliateId === row.affiliateId
@@ -2150,10 +2187,7 @@ const KolAuditPage = () => {
     }
   }
 
-  async function refreshDetailDialogData(
-    row: AffiliateAuditRow,
-    mode = detailDialog.mode,
-  ) {
+  async function refreshDetailDialogData(row: AuditRow, mode = detailDialog.mode) {
     await openDetailDialog(mode, row);
   }
 
@@ -2211,11 +2245,7 @@ const KolAuditPage = () => {
     });
   }
 
-  function openReviewDialog(
-    mode: AuditTab,
-    row: AffiliateAuditRow,
-    status: TrafficReviewStatus | KycReviewStatus,
-  ) {
+  function openReviewDialog(mode: AuditTab, row: AuditRow, status: TrafficReviewStatus | KycReviewStatus) {
     const affiliateId = String(row.affiliateId ?? "");
 
     if (!affiliateId) {
@@ -2232,7 +2262,7 @@ const KolAuditPage = () => {
       accountType: String(row.accountType ?? "").trim(),
       bdAdminId:
         mode === "traffic"
-          ? resolveReviewDialogBdAdminId(bdUsers, row, [], String(row.bdOwnerAdminId ?? "").trim())
+          ? resolveReviewDialogBdAdminId(bdUsers, row)
           : "",
       remark: "",
     });
@@ -3041,7 +3071,14 @@ const KolAuditPage = () => {
               <MetaItem label="Email" value={String(detailDialog.row?.mail ?? "-")} />
               <MetaItem label="Affiliate Code" value={String(detailDialog.row?.affiliateCode ?? "-")} />
               <MetaItem label="Referral Code" value={String(detailDialog.row?.referralCode ?? "-")} />
-              <MetaItem label="Audit Time" value={auditTimeForRow(detailDialog.mode, detailDialog.row) || "-"} />
+              <MetaItem
+                label="Audit Time"
+                value={
+                  detailDialog.mode === "traffic"
+                    ? trafficAuditTimeForRow(detailDialog.row as AffiliateTrafficReviewRow | null)
+                    : kycAuditTimeForRow(detailDialog.row as AffiliateKycReviewRow | null)
+                }
+              />
             </div>
 
               {detailDialog.loading ? (

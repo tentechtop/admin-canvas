@@ -1,1 +1,1 @@
-export { default } from "@/features/console/RolePermissionScenarioPage";
+export { default } from "@/features/console/SystemPermissionPage";

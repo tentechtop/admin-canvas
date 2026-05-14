@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, RefreshCcw, XCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -7,21 +7,37 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatCard } from "@/features/console/shared";
-import { settlementQueryKeys, useSettlementDashboard, useSettlementPaymentSummaries, useSettlementStatements } from "@/features/settlement-center/hooks";
 import {
+  settlementQueryKeys,
+  useSettlementCommissionStatements,
+  useSettlementDashboard,
+  useSettlementPaymentSummaries,
+  useSettlementStatements,
+} from "@/features/settlement-center/hooks";
+import {
+  CommissionStatementDetailDialog,
+  CreatePaymentSummaryDialog,
+  EditPaymentSummaryDialog,
   metricText,
   PageShell,
   PaymentExecutionDialog,
   PaymentSummaryDetailDialog,
   StatementDetailDialog,
 } from "@/features/settlement-center/shared";
+import { KolCommissionView } from "@/features/settlement-center/kol-commission";
+import { areSettlementPaymentFilesEqual, normalizeSettlementPaymentFiles } from "@/lib/settlement-payment-files";
 import {
+  CommissionStatementFilters,
+  CommissionStatementsTable,
   PaymentSummariesTable,
   StatementFilters,
   StatementsTable,
   SummaryFilters,
 } from "@/features/settlement-center/tables";
 import type {
+  SettlementCommissionStatementQuery,
+  SettlementCreatePaymentSummaryPayload,
+  SettlementPaymentFile,
   SettlementPaymentSummaryQuery,
   SettlementPaymentSummaryRow,
   SettlementStatementQuery,
@@ -29,6 +45,8 @@ import type {
 } from "@/types/affiliate-console";
 
 const reviewStatuses = ["PENDING", "APPLIED", "APPROVED", "DECLINED", "PAID"];
+
+export { KolCommissionView };
 
 export function DashboardView() {
   const dashboardQuery = useSettlementDashboard();
@@ -52,6 +70,72 @@ export function DashboardView() {
         <StatCard label="Declined" value={dashboardQuery.isLoading ? "..." : metricText(dashboardQuery.data?.declined)} />
         <StatCard label="Outstanding Payable" value={dashboardQuery.data?.totalPayableAmount ?? "0.00"} />
       </div>
+    </PageShell>
+  );
+}
+
+export function CommissionStatementView() {
+  const [filters, setFilters] = useState<SettlementCommissionStatementQuery>({
+    page: 1,
+    pageSize: 20,
+    sortBy: "applicationTime",
+    sortOrder: "desc",
+    status: [],
+  });
+  const [query, setQuery] = useState(filters);
+  const [detailStatementId, setDetailStatementId] = useState<number | string | undefined>(undefined);
+  const statementsQuery = useSettlementCommissionStatements(query);
+
+  return (
+    <PageShell
+      title="Commission Statement"
+      description="Periodic payable commission statements mapped from payment_history and payment_summary with query-level amount aggregation."
+      actions={
+        <Button type="button" variant="outline" onClick={() => void statementsQuery.refetch()} disabled={statementsQuery.isFetching}>
+          <RefreshCcw className="mr-2 h-4 w-4" />
+          Refresh
+        </Button>
+      }
+    >
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Origin Commission Total" value={statementsQuery.isLoading ? "..." : statementsQuery.data?.summary?.originCommissionTotal ?? "0.00"} />
+        <StatCard label="Award Deduction Total" value={statementsQuery.isLoading ? "..." : statementsQuery.data?.summary?.awardDeductionTotal ?? "0.00"} />
+        <StatCard label="Manual Adjustment Total" value={statementsQuery.isLoading ? "..." : statementsQuery.data?.summary?.manualAdjustmentTotal ?? "0.00"} />
+        <StatCard label="Payable Total" value={statementsQuery.isLoading ? "..." : statementsQuery.data?.summary?.payableTotal ?? "0.00"} />
+      </div>
+
+      <CommissionStatementFilters
+        filters={filters}
+        onChange={setFilters}
+        onSearch={() => setQuery({ ...filters, page: 1 })}
+        onReset={() => {
+          const next = {
+            page: 1,
+            pageSize: 20,
+            sortBy: "applicationTime",
+            sortOrder: "desc",
+            status: [],
+          } satisfies SettlementCommissionStatementQuery;
+          setFilters(next);
+          setQuery(next);
+        }}
+        loading={statementsQuery.isFetching}
+      />
+
+      <CommissionStatementsTable
+        data={statementsQuery.data}
+        loading={statementsQuery.isLoading || statementsQuery.isFetching}
+        page={query.page ?? 1}
+        pageSize={query.pageSize ?? 20}
+        onPageChange={(page) => setQuery((current) => ({ ...current, page }))}
+        onView={(row) => setDetailStatementId(row.statementId)}
+      />
+
+      <CommissionStatementDetailDialog
+        statementId={detailStatementId}
+        open={detailStatementId !== undefined}
+        onOpenChange={(open) => !open && setDetailStatementId(undefined)}
+      />
     </PageShell>
   );
 }
@@ -107,12 +191,27 @@ export function PaymentSummaryView() {
     status: "PENDING",
   });
   const [candidateQuery, setCandidateQuery] = useState(candidateFilters);
-  const [selectedStatementIds, setSelectedStatementIds] = useState<number[]>([]);
+  const [selectedStatementMap, setSelectedStatementMap] = useState<Record<string, SettlementStatementRow>>({});
   const [detailSummaryId, setDetailSummaryId] = useState<number | undefined>(undefined);
-  const [merging, setMerging] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const summaryQuery = useSettlementPaymentSummaries(query);
   const candidatesQuery = useSettlementStatements(candidateQuery);
+  const selectedStatements = useMemo(
+    () =>
+      Object.values(selectedStatementMap).sort(
+        (left, right) => Number(left.id ?? 0) - Number(right.id ?? 0),
+      ),
+    [selectedStatementMap],
+  );
+  const selectedStatementIds = useMemo(
+    () =>
+      selectedStatements
+        .map((row) => Number(row.id ?? 0))
+        .filter((id) => id > 0),
+    [selectedStatements],
+  );
 
   async function refreshAll() {
     await Promise.all([
@@ -122,28 +221,39 @@ export function PaymentSummaryView() {
     ]);
   }
 
-  async function handleMerge() {
+  function openCreateDialog() {
     if (selectedStatementIds.length === 0) {
       toast.error("Select at least one pending statement.");
       return;
     }
-    setMerging(true);
+    setCreateDialogOpen(true);
+  }
+
+  async function handleCreateSummary(payload: SettlementCreatePaymentSummaryPayload) {
+    setCreating(true);
     try {
-      await affiliateConsoleApi.mergeSettlementPaymentSummary(selectedStatementIds);
-      toast.success("Payment summary created.");
-      setSelectedStatementIds([]);
+      const result = await affiliateConsoleApi.createSettlementPaymentSummary(payload);
+      const settlementId = Number(result.value?.settlementId ?? 0) || undefined;
+      toast.success(
+        settlementId ? `Payment summary ${settlementId} created.` : "Payment summary created.",
+      );
+      setSelectedStatementMap({});
+      setCreateDialogOpen(false);
       await refreshAll();
+      if (settlementId) {
+        setDetailSummaryId(settlementId);
+      }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Merge failed");
+      toast.error(error instanceof Error ? error.message : "Create payment summary failed");
     } finally {
-      setMerging(false);
+      setCreating(false);
     }
   }
 
   return (
     <PageShell
       title="Payment Summary"
-      description="payment_summary list, detail, merge flow, and attachment visibility."
+      description="payment_summary list, detail, create-bill flow, and attachment visibility."
       actions={
         <Button type="button" variant="outline" onClick={() => void refreshAll()} disabled={summaryQuery.isFetching || candidatesQuery.isFetching}>
           <RefreshCcw className="mr-2 h-4 w-4" />
@@ -163,6 +273,25 @@ export function PaymentSummaryView() {
         loading={summaryQuery.isFetching}
       />
 
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Total Payable"
+          value={summaryQuery.isLoading ? "..." : summaryQuery.data?.summary?.totalPayableAmount ?? "0.00"}
+        />
+        <StatCard
+          label="Pending Review Payable"
+          value={summaryQuery.isLoading ? "..." : summaryQuery.data?.summary?.pendingReviewPayableAmount ?? "0.00"}
+        />
+        <StatCard
+          label="Paid Payable"
+          value={summaryQuery.isLoading ? "..." : summaryQuery.data?.summary?.paidPayableAmount ?? "0.00"}
+        />
+        <StatCard
+          label="Unpaid Payable"
+          value={summaryQuery.isLoading ? "..." : summaryQuery.data?.summary?.unpaidPayableAmount ?? "0.00"}
+        />
+      </div>
+
       <PaymentSummariesTable
         items={summaryQuery.data?.items ?? []}
         total={summaryQuery.data?.total ?? 0}
@@ -176,7 +305,7 @@ export function PaymentSummaryView() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Merge Pending Statements</CardTitle>
+          <CardTitle className="text-lg">Create Bill From Pending Statements</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <StatementFilters
@@ -187,16 +316,16 @@ export function PaymentSummaryView() {
               const next = { currentPage: 1, pageSize: 20, status: "PENDING" } satisfies SettlementStatementQuery;
               setCandidateFilters(next);
               setCandidateQuery(next);
-              setSelectedStatementIds([]);
+              setSelectedStatementMap({});
             }}
             loading={candidatesQuery.isFetching}
           />
 
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm text-muted-foreground">Selected {selectedStatementIds.length} statement(s) for merge.</div>
-            <Button type="button" onClick={() => void handleMerge()} disabled={merging || selectedStatementIds.length === 0}>
-              {merging ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-              Create Summary
+            <div className="text-sm text-muted-foreground">Selected {selectedStatementIds.length} pending statement(s) for bill creation.</div>
+            <Button type="button" onClick={openCreateDialog} disabled={creating || selectedStatementIds.length === 0}>
+              {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+              Create Bill
             </Button>
           </div>
 
@@ -208,13 +337,32 @@ export function PaymentSummaryView() {
             onPageChange={(page) => setCandidateQuery((current) => ({ ...current, currentPage: page }))}
             onView={() => undefined}
             selectedIds={selectedStatementIds}
-            onToggleSelect={(id, checked) =>
-              setSelectedStatementIds((current) => (checked ? Array.from(new Set([...current, id])) : current.filter((item) => item !== id)))
+            onToggleSelect={(row, checked) =>
+              setSelectedStatementMap((current) => {
+                const id = Number(row.id ?? 0);
+                if (id <= 0) {
+                  return current;
+                }
+                if (checked) {
+                  return { ...current, [String(id)]: row };
+                }
+                const next = { ...current };
+                delete next[String(id)];
+                return next;
+              })
             }
             showSelect
           />
         </CardContent>
       </Card>
+
+      <CreatePaymentSummaryDialog
+        rows={selectedStatements}
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        onSubmit={handleCreateSummary}
+        submitting={creating}
+      />
 
       <PaymentSummaryDetailDialog summaryId={detailSummaryId} open={Boolean(detailSummaryId)} onOpenChange={(open) => !open && setDetailSummaryId(undefined)} />
     </PageShell>
@@ -226,7 +374,9 @@ export function WithdrawalReviewView() {
   const [filters, setFilters] = useState<SettlementPaymentSummaryQuery>({ page: 1, pageSize: 20 });
   const [query, setQuery] = useState(filters);
   const [detailSummaryId, setDetailSummaryId] = useState<number | undefined>(undefined);
+  const [editRow, setEditRow] = useState<SettlementPaymentSummaryRow | null>(null);
   const [submittingId, setSubmittingId] = useState<number | null>(null);
+  const [editing, setEditing] = useState(false);
   const summariesQuery = useSettlementPaymentSummaries(query);
 
   async function updateStatus(id: number, status: string, note?: string) {
@@ -239,6 +389,37 @@ export function WithdrawalReviewView() {
       toast.error(error instanceof Error ? error.message : "Status update failed");
     } finally {
       setSubmittingId(null);
+    }
+  }
+
+  async function handleEdit(payload: {
+    adjustmentsAmount: string;
+    payoutDate: string;
+    paymentMethods: string;
+    note: string;
+    paymentFile: SettlementPaymentFile[];
+  }) {
+    if (!editRow?.id) {
+      return;
+    }
+
+    setEditing(true);
+    try {
+      await affiliateConsoleApi.updateSettlementPaymentSummary({
+        id: Number(editRow.id),
+        adjustmentsAmount: payload.adjustmentsAmount,
+        payoutDate: payload.payoutDate.trim() || undefined,
+        paymentMethods: payload.paymentMethods.trim() || undefined,
+        note: payload.note.trim() || undefined,
+        paymentFile: payload.paymentFile,
+      });
+      toast.success("Payment summary updated.");
+      setEditRow(null);
+      await queryClient.invalidateQueries({ queryKey: ["settlement-center"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Payment summary update failed");
+    } finally {
+      setEditing(false);
     }
   }
 
@@ -278,17 +459,30 @@ export function WithdrawalReviewView() {
         renderActions={(row) => {
           const id = Number(row.id ?? 0);
           const loading = submittingId === id;
+          const editable = row.status !== "PAID";
           if (row.status === "PENDING" || row.status === "DECLINED") {
             return (
-              <Button type="button" size="sm" disabled={loading} onClick={() => void updateStatus(id, "APPLIED")}>
-                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-                Submit
-              </Button>
+              <>
+                {editable ? (
+                  <Button type="button" size="sm" variant="outline" onClick={() => setEditRow(row)}>
+                    Edit
+                  </Button>
+                ) : null}
+                <Button type="button" size="sm" disabled={loading} onClick={() => void updateStatus(id, "APPLIED")}>
+                  {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                  Submit
+                </Button>
+              </>
             );
           }
           if (row.status === "APPLIED") {
             return (
               <>
+                {editable ? (
+                  <Button type="button" size="sm" variant="outline" onClick={() => setEditRow(row)}>
+                    Edit
+                  </Button>
+                ) : null}
                 <Button type="button" size="sm" disabled={loading} onClick={() => void updateStatus(id, "APPROVED")}>
                   <CheckCircle2 className="mr-2 h-4 w-4" />
                   Approve
@@ -309,11 +503,22 @@ export function WithdrawalReviewView() {
               </>
             );
           }
-          return null;
+          return editable ? (
+            <Button type="button" size="sm" variant="outline" onClick={() => setEditRow(row)}>
+              Edit
+            </Button>
+          ) : null;
         }}
       />
 
       <PaymentSummaryDetailDialog summaryId={detailSummaryId} open={Boolean(detailSummaryId)} onOpenChange={(open) => !open && setDetailSummaryId(undefined)} />
+      <EditPaymentSummaryDialog
+        row={editRow}
+        open={Boolean(editRow)}
+        onOpenChange={(open) => !open && setEditRow(null)}
+        onSubmit={handleEdit}
+        submitting={editing}
+      />
     </PageShell>
   );
 }
@@ -331,20 +536,45 @@ export function PaymentExecutionView() {
   const [submitting, setSubmitting] = useState(false);
   const summariesQuery = useSettlementPaymentSummaries(query);
 
-  async function handleExecute(payload: { payoutDate: string; paymentMethods: string; note: string; paymentFile: string[] }) {
+  async function handleExecute(payload: { payoutDate: string; paymentMethods: string; note: string; paymentFile: SettlementPaymentFile[] }) {
     if (!executionRow?.id) {
       return;
     }
+
+    const payoutDate = payload.payoutDate.trim();
+    const paymentMethods = payload.paymentMethods.trim();
+
+    if (!payoutDate) {
+      toast.error("Payout date is required before marking a summary as paid.");
+      return;
+    }
+
+    if (!paymentMethods) {
+      toast.error("Payment methods are required before marking a summary as paid.");
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await affiliateConsoleApi.updateSettlementPaymentSummary({
+      const updatePayload = {
         id: Number(executionRow.id),
         status: "PAID",
-        payoutDate: payload.payoutDate,
-        paymentMethods: payload.paymentMethods,
-        note: payload.note,
-        paymentFile: payload.paymentFile,
-      });
+        payoutDate,
+        paymentMethods,
+      };
+      const nextNote = payload.note.trim();
+      const currentNote = String(executionRow.note ?? "").trim();
+      const currentPaymentFiles = normalizeSettlementPaymentFiles(executionRow.paymentFile);
+
+      if (nextNote && nextNote !== currentNote) {
+        Object.assign(updatePayload, { note: nextNote });
+      }
+
+      if (!areSettlementPaymentFilesEqual(currentPaymentFiles, payload.paymentFile)) {
+        Object.assign(updatePayload, { paymentFile: payload.paymentFile });
+      }
+
+      await affiliateConsoleApi.updateSettlementPaymentSummary(updatePayload);
       toast.success("Payment marked as paid.");
       setExecutionRow(null);
       await queryClient.invalidateQueries({ queryKey: ["settlement-center"] });
@@ -359,6 +589,12 @@ export function PaymentExecutionView() {
     <PageShell
       title="Payment Execution"
       description="Finance operation for APPROVED -> PAID with payoutDate, paymentMethods, paymentFile, and note."
+      actions={
+        <Button type="button" variant="outline" onClick={() => void summariesQuery.refetch()} disabled={summariesQuery.isFetching}>
+          <RefreshCcw className="mr-2 h-4 w-4" />
+          Refresh
+        </Button>
+      }
     >
       <SummaryFilters
         filters={filters}
@@ -500,8 +736,8 @@ export function ExceptionView() {
   async function resubmitStatement(id: number) {
     setSubmittingId(id);
     try {
-      await affiliateConsoleApi.updateSettlementStatement({ id, status: "PENDING" });
-      toast.success("Statement moved back to PENDING.");
+      await affiliateConsoleApi.updateSettlementStatement({ id, status: "APPLIED" });
+      toast.success("Statement moved back to APPLIED.");
       await queryClient.invalidateQueries({ queryKey: ["settlement-center"] });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Statement resubmit failed");
